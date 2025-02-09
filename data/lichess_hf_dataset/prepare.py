@@ -4,13 +4,15 @@
 import os
 from tqdm import tqdm
 import numpy as np
-import tiktoken
 from datasets import load_dataset  # huggingface datasets
 import pickle
+import argparse
+from transformers import AutoTokenizer
+import re
 
 # number of workers in .map() call
 # good number to use is ~order number of cpu cores // 2
-num_proc = 8
+num_proc = 1 # 8
 dtype = np.uint8  # Currently there are only 32 tokens in the chess LLMs vocab
 
 # number of workers in load_dataset() call
@@ -18,11 +20,64 @@ dtype = np.uint8  # Currently there are only 32 tokens in the chess LLMs vocab
 # it is better than 1 usually though
 num_proc_load_dataset = num_proc
 
+def load_tokenizer(hf_tokenizer, tokenizer_path = None):
+    dropped_chars = ""
+
+    if not hf_tokenizer:
+        meta_path = os.path.join(os.path.dirname(__file__), "meta.pkl")
+        with open(meta_path, "rb") as f:
+            meta = pickle.load(f)
+        stoi = meta["stoi"]
+
+        def tokenize(example, column_name):
+            return np.array(
+                [
+                    stoi[c] for c in example[column_name] if c not in dropped_chars
+                ], dtype = dtype
+            )
+
+        return tokenize
+
+    tokenizer = AutoTokenizer.from_pretrained(
+        tokenizer_path,
+        local_files_only = True
+    )
+
+    def tokenize(example, column_name):
+        contents = example[column_name]
+        contents = re.sub(
+            r"[{}]".format("".join(dropped_chars)),
+            r"",
+            contents
+        )
+        contents = re.sub(
+            r"[\ ;]+[0-9]+[\.]*",
+            r" ",
+            contents
+        )
+
+        ids = tokenizer(
+            contents,
+            padding = False,
+            truncation = False
+        )["input_ids"]
+
+        return np.array(
+            ids, dtype = dtype
+        )
+    
+    return tokenize
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--dataset", type = str, required = True)
+parser.add_argument("--tokenizer", type = str, required = False, default = None)
+args = parser.parse_args()
+
 if __name__ == "__main__":
     # dataset = load_dataset("csv", data_files={"train": "pgn.csv"}) # For local testing
 
     dataset_path = "adamkarvonen/chess_games"
-    file_path = "lichess_6gb_blocks.zip"
+    file_path = args.dataset
     # file_path = "smaller_pgn_file_blocks.zip"
 
     # Load the dataset
@@ -48,12 +103,7 @@ if __name__ == "__main__":
     # })
 
     # we now want to tokenize the dataset. Using meta.pkl in the same directory as this file
-    meta_path = os.path.join(os.path.dirname(__file__), "meta.pkl")
-    with open(meta_path, "rb") as f:
-        meta = pickle.load(f)
-
-    stoi = meta["stoi"]
-    itos = meta["itos"]
+    tokenizer = load_tokenizer(args.tokenizer is not None, args.tokenizer)
 
     # to read the bin files later, e.g. with numpy:
     # m = np.memmap('train.bin', dtype=np.uint8, mode='r')
@@ -71,7 +121,7 @@ if __name__ == "__main__":
     column_name = "transcript"
 
     def process(example):
-        ids = np.array([stoi[c] for c in example[column_name]], dtype=dtype)
+        ids = tokenizer(example, column_name)
         out = {"ids": ids, "len": len(ids)}
         return out
 
@@ -82,8 +132,6 @@ if __name__ == "__main__":
         desc="tokenizing the splits",
         num_proc=num_proc,
     )
-
-    # print(tokenized["val"]["ids"])
 
     # concatenate all the ids in each dataset into one large file we can use for training
     for split, dset in tokenized.items():
@@ -100,10 +148,9 @@ if __name__ == "__main__":
             batch = dset.shard(
                 num_shards=total_batches, index=batch_idx, contiguous=True
             ).with_format("numpy")
-            # print(batch[0])
+
             arr_batch = np.concatenate(batch["ids"])
-            # print(arr_batch)
-            # print(arr_batch.shape)
+
             # Write into mmap
             arr[idx : idx + len(arr_batch)] = arr_batch
             idx += len(arr_batch)
