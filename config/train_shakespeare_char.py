@@ -1,4 +1,12 @@
-out_dir = "out-shakespeare-char"
+import argparse, os
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--model_dir", type = str, default = "out-shakespeare-char")
+parser.add_argument("--data_dir", type = str, default = "lichess_hf_dataset")
+parser.add_argument("--run_name", type = str, default = "8layer_ntp_lichess")
+args = parser.parse_args()
+
+out_dir = os.path.join(args.model_dir, args.run_name)
 eval_interval = 4000
 eval_iters = 100
 # I'm not sure what's going on, but when log_interval == 100, the time per iter is inaccurate and much longer than it should be
@@ -7,11 +15,11 @@ log_interval = 50  # don't print too too often
 
 always_save_checkpoint = True
 
-wandb_log = False
-wandb_project = "chess-gpt-batch"
-wandb_run_name = "8layer_lichess"
+wandb_log = True
+wandb_project = "chessformer"
+wandb_run_name = args.run_name
 
-dataset = "lichess_hf_dataset"
+dataset = args.data_dir
 gradient_accumulation_steps = 1
 batch_size = 100
 block_size = 1023  # context of up to 1023 tokens (because dataset block size is 1024)

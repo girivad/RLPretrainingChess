@@ -21,7 +21,6 @@ dtype = np.uint8  # Currently there are only 32 tokens in the chess LLMs vocab
 num_proc_load_dataset = num_proc
 
 def load_tokenizer():
-    dropped_chars = ""
 
     meta_path = os.path.join(os.path.dirname(__file__), "meta.pkl")
     with open(meta_path, "rb") as f:
@@ -31,18 +30,13 @@ def load_tokenizer():
     def tokenize(example, column_name):
         contents = example[column_name]
         contents = re.sub(
-            r"[{}]".format("".join(dropped_chars)),
-            "",
-            contents
-        )
-        contents = re.sub(
             r"[0-9]+[\.]+",
             "",
             contents
         )
         return np.array(
             [
-                stoi[c] for c in contents if c not in dropped_chars
+                stoi[c] for c in contents
             ], dtype = dtype
         )
 
@@ -50,6 +44,7 @@ def load_tokenizer():
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--dataset", type = str, required = True)
+parser.add_argument("--out_dir", default = os.path.dirname(__file__), type = str)
 args = parser.parse_args()
 
 if __name__ == "__main__":
@@ -58,7 +53,7 @@ if __name__ == "__main__":
     file_path = args.dataset
 
     # Load the dataset
-    dataset = load_dataset(dataset_path, data_files=file_path, split = "train")
+    dataset = load_dataset(dataset_path, data_files = file_path, split = "train")
 
     # by default only contains the 'train' split, so create a test split
     split_dataset = dataset.train_test_split(
@@ -114,7 +109,7 @@ if __name__ == "__main__":
     for split, dset in tokenized.items():
         arr_len = np.sum(dset["len"], dtype=np.uint64)
         print(f"{split} has {arr_len} tokens")
-        filename = os.path.join(os.path.dirname(__file__), f"{split}.bin")
+        filename = os.path.join(args.out_dir, f"{split}.bin")
         arr = np.memmap(filename, dtype=dtype, mode="w+", shape=(arr_len,))
         print(arr.shape)
         total_batches = 1024

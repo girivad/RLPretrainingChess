@@ -66,6 +66,8 @@ decay_lr = True # whether to decay the learning rate
 warmup_iters = 2000 # how many steps to warm up for
 lr_decay_iters = 600000 # should be ~= max_iters per Chinchilla
 min_lr = 6e-5 # minimum learning rate, should be ~= learning_rate/10 per Chinchilla
+# Loss Settings
+z_loss = True
 # DDP settings
 backend = 'nccl' # 'nccl', 'gloo', etc.
 # system
@@ -112,7 +114,7 @@ ptdtype = {'float32': torch.float32, 'bfloat16': torch.bfloat16, 'float16': torc
 ctx = nullcontext() if device_type == 'cpu' else torch.amp.autocast(device_type=device_type, dtype=ptdtype)
 
 # poor man's data loader
-data_dir = os.path.join('data', dataset)
+data_dir = dataset
 train_data = np.memmap(os.path.join(data_dir, 'train.bin'), dtype=np.uint8, mode='r')
 val_data = np.memmap(os.path.join(data_dir, 'val.bin'), dtype=np.uint8, mode='r')
 def get_batch(split):
@@ -192,7 +194,7 @@ if block_size < model.config.block_size:
 model.to(device)
 
 # initialize a GradScaler. If enabled=False scaler is a no-op
-scaler = torch.cuda.amp.GradScaler(enabled=(dtype == 'float16'))
+scaler = torch.cuda.amp.GradScaler('cuda', enabled=(dtype == 'float16'))
 
 # optimizer
 optimizer = model.configure_optimizers(weight_decay, learning_rate, (beta1, beta2), device_type)
@@ -220,7 +222,7 @@ def estimate_loss():
         for k in range(eval_iters):
             X, Y = get_batch(split)
             with ctx:
-                logits, loss = model(X, Y)
+                logits, loss = model(X, Y, z = z_loss)
             losses[k] = loss.item()
         out[split] = losses.mean()
     model.train()
@@ -281,8 +283,11 @@ while True:
                     'best_val_loss': best_val_loss,
                     'config': config,
                 }
-                print(f"saving checkpoint to {out_dir}")
-                torch.save(checkpoint, os.path.join(out_dir, 'ckpt.pt'))
+                ckpt_dir = os.path.join(out_dir, f"ckpt_{iter_num}")
+                if not os.path.isdir(ckpt_dir):
+                    os.mkdir(ckpt_dir)
+                print(f"saving checkpoint to {ckpt_dir}")
+                torch.save(checkpoint, os.path.join(ckpt_dir, 'ckpt.pt'))
     if iter_num == 0 and eval_only:
         break
 
