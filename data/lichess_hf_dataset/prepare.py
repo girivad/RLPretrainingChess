@@ -12,7 +12,7 @@ import re
 
 # number of workers in .map() call
 # good number to use is ~order number of cpu cores // 2
-num_proc = 1 # 8
+num_proc = 8
 dtype = np.uint8  # Currently there are only 32 tokens in the chess LLMs vocab
 
 # number of workers in load_dataset() call
