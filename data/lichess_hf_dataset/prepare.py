@@ -60,7 +60,6 @@ if __name__ == "__main__":
 
     # Load the dataset
     dataset = load_dataset(dataset_path, data_files=file_path, split = "train")
-    tokenizer = load_tokenizer(args.tokenizer is not None, args.tokenizer)
 
     # by default only contains the 'train' split, so create a test split
     split_dataset = dataset.train_test_split(
