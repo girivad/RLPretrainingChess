@@ -4,10 +4,9 @@
 import os
 from tqdm import tqdm
 import numpy as np
-from datasets import load_dataset  # huggingface datasets
+from datasets import load_dataset, Dataset  # huggingface datasets
 import pickle
 import argparse
-from transformers import AutoTokenizer
 import re
 
 # number of workers in .map() call
@@ -39,7 +38,7 @@ def load_tokenizer():
             contents
         )
         for char in dropped_chars:
-            assert char not in contents
+            assert char not in contents, (contents, char)
         return np.array(
             [
                 stoi[c] for c in contents
@@ -47,6 +46,19 @@ def load_tokenizer():
         )
 
     return tokenize
+
+def pack(ds, blk_size = 1024):
+    blk = []
+
+    for ex in ds:
+        ex_ids = list(ex["ids"])
+
+        rlen = min(len(ex_ids), blk_size - len(blk))
+        blk += ex_ids[:rlen]
+
+        if len(blk) == blk_size:
+            yield {"ids": np.array(blk, dtype = dtype), "len": blk_size}
+            blk = []
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--dataset", type = str, required = True)
@@ -110,6 +122,19 @@ if __name__ == "__main__":
         desc="tokenizing the splits",
         num_proc=num_proc,
     )
+
+    def train_pack():
+        yield from pack(tokenized["train"])
+    
+    def val_pack():
+        yield from pack(tokenized["val"])
+
+    for split in tokenized.keys():
+        def split_pack():
+            yield from pack(tokenized[split])
+        tokenized[split] = Dataset.from_generator(
+            split_pack
+        )
 
     # concatenate all the ids in each dataset into one large file we can use for training
     for split, dset in tokenized.items():
