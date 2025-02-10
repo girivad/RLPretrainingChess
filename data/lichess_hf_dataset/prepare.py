@@ -50,7 +50,6 @@ def load_tokenizer():
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--dataset", type = str, required = True)
-parser.add_argument("--tokenizer", type = str, required = False, default = None)
 args = parser.parse_args()
 
 if __name__ == "__main__":
@@ -81,7 +80,7 @@ if __name__ == "__main__":
     # })
 
     # we now want to tokenize the dataset. Using meta.pkl in the same directory as this file
-    tokenizer = load_tokenizer(args.tokenizer is not None, args.tokenizer)
+    tokenizer = load_tokenizer()
 
     # to read the bin files later, e.g. with numpy:
     # m = np.memmap('train.bin', dtype=np.uint8, mode='r')
