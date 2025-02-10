@@ -21,11 +21,15 @@ dtype = np.uint8  # Currently there are only 32 tokens in the chess LLMs vocab
 num_proc_load_dataset = num_proc
 
 def load_tokenizer():
-
+    dropped_chars = {".", "0", "9"}
     meta_path = os.path.join(os.path.dirname(__file__), "meta.pkl")
     with open(meta_path, "rb") as f:
         meta = pickle.load(f)
     stoi = meta["stoi"]
+    vocab, _ = zip(*sorted([(token, idx) for token, idx in stoi.items() if token not in dropped_chars], key = lambda tokdx: tokdx[1]))
+    stoi = {
+        token: idx for idx, token in enumerate(vocab)
+    }
 
     def tokenize(example, column_name):
         contents = example[column_name]
@@ -34,6 +38,8 @@ def load_tokenizer():
             "",
             contents
         )
+        for char in dropped_chars:
+            assert char not in contents
         return np.array(
             [
                 stoi[c] for c in contents
