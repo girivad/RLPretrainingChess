@@ -20,52 +20,32 @@ dtype = np.uint8  # Currently there are only 32 tokens in the chess LLMs vocab
 # it is better than 1 usually though
 num_proc_load_dataset = num_proc
 
-def load_tokenizer(hf_tokenizer, tokenizer_path = None):
+def load_tokenizer():
     dropped_chars = ""
 
-    if not hf_tokenizer:
-        meta_path = os.path.join(os.path.dirname(__file__), "meta.pkl")
-        with open(meta_path, "rb") as f:
-            meta = pickle.load(f)
-        stoi = meta["stoi"]
-
-        def tokenize(example, column_name):
-            return np.array(
-                [
-                    stoi[c] for c in example[column_name] if c not in dropped_chars
-                ], dtype = dtype
-            )
-
-        return tokenize
-
-    tokenizer = AutoTokenizer.from_pretrained(
-        tokenizer_path,
-        local_files_only = True
-    )
+    meta_path = os.path.join(os.path.dirname(__file__), "meta.pkl")
+    with open(meta_path, "rb") as f:
+        meta = pickle.load(f)
+    stoi = meta["stoi"]
 
     def tokenize(example, column_name):
         contents = example[column_name]
         contents = re.sub(
             r"[{}]".format("".join(dropped_chars)),
-            r"",
+            "",
             contents
         )
         contents = re.sub(
-            r"[\ ;]+[0-9]+[\.]*",
-            r" ",
+            r"[0-9]+[\.]+",
+            "",
             contents
         )
-
-        ids = tokenizer(
-            contents,
-            padding = False,
-            truncation = False
-        )["input_ids"]
-
         return np.array(
-            ids, dtype = dtype
+            [
+                stoi[c] for c in contents if c not in dropped_chars
+            ], dtype = dtype
         )
-    
+
     return tokenize
 
 parser = argparse.ArgumentParser()
@@ -74,17 +54,16 @@ parser.add_argument("--tokenizer", type = str, required = False, default = None)
 args = parser.parse_args()
 
 if __name__ == "__main__":
-    # dataset = load_dataset("csv", data_files={"train": "pgn.csv"}) # For local testing
 
     dataset_path = "adamkarvonen/chess_games"
     file_path = args.dataset
-    # file_path = "smaller_pgn_file_blocks.zip"
 
     # Load the dataset
-    dataset = load_dataset(dataset_path, data_files=file_path)
+    dataset = load_dataset(dataset_path, data_files=file_path, split = "train")
+    tokenizer = load_tokenizer(args.tokenizer is not None, args.tokenizer)
 
     # by default only contains the 'train' split, so create a test split
-    split_dataset = dataset["train"].train_test_split(
+    split_dataset = dataset.train_test_split(
         test_size=0.01, seed=2357, shuffle=True
     )
     split_dataset["val"] = split_dataset.pop("test")  # rename the test split to val
