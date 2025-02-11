@@ -150,10 +150,9 @@ if init_from == 'scratch':
     # init a new model from scratch
     print("Initializing a new model from scratch")
     # determine the vocab size we'll use for from-scratch training
-    if meta_vocab_size is None:
-        print("defaulting to vocab_size of GPT-2 to 50304 (50257 rounded up for efficiency)")
-        if meta_vocab_size:
-            model_args['vocab_size'] = meta_vocab_size
+    if meta_vocab_size is not None:
+        model_args['vocab_size'] = meta_vocab_size
+    print("defaulting to vocab_size of GPT-2 to 29")
     gptconf = GPTConfig(**model_args)
     model = GPT(gptconf)
 elif init_from == 'resume':
