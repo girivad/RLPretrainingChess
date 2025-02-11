@@ -123,12 +123,6 @@ if __name__ == "__main__":
         num_proc=num_proc,
     )
 
-    def train_pack():
-        yield from pack(tokenized["train"])
-    
-    def val_pack():
-        yield from pack(tokenized["val"])
-
     for split in tokenized.keys():
         def split_pack():
             yield from pack(tokenized[split])
