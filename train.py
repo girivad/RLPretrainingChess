@@ -34,6 +34,7 @@ from model import GPTConfig, GPT
 # I/O
 out_dir = 'out'
 eval_interval = 2000
+ckpt_interval = 50000
 log_interval = 1
 eval_iters = 200
 eval_only = False # if True, script exits right after the first eval
@@ -273,7 +274,7 @@ while True:
                 "lr": lr,
                 "mfu": running_mfu*100, # convert to percentage
             })
-        if losses['val'] < best_val_loss or always_save_checkpoint:
+        if losses['val'] < best_val_loss or (always_save_checkpoint and iter_num % ckpt_interval == 0):
             best_val_loss = losses['val']
             if iter_num > 0:
                 checkpoint = {
