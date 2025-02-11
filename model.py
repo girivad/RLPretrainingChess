@@ -14,6 +14,7 @@ from dataclasses import dataclass
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
+from torch.nn.attention.bias import causal_lower_right, causal_upper_left
 from torch import logsumexp
 
 class LayerNorm(nn.Module):
@@ -50,7 +51,7 @@ class SelfAttention(nn.Module):
             self.register_buffer("bias", torch.tril(torch.ones(config.block_size, config.block_size))
                                         .view(1, 1, config.block_size, config.block_size))
 
-    def forward(self, x):
+    def forward(self, x, causal = True):
         B, T, C = x.size() # batch size, sequence length, embedding dimensionality (n_embd)
 
         # calculate query, key, values for all heads in batch and move head forward to be the batch dim
@@ -62,7 +63,10 @@ class SelfAttention(nn.Module):
         # causal self-attention; Self-attend: (B, nh, T, hs) x (B, nh, hs, T) -> (B, nh, T, T)
         if self.flash:
             # efficient attention using Flash Attention CUDA kernels
-            y = torch.nn.functional.scaled_dot_product_attention(q, k, v, attn_mask=None, dropout_p=self.dropout if self.training else 0, is_causal=True)
+            if causal:
+                y = torch.nn.functional.scaled_dot_product_attention(q, k, v, attn_mask=None, dropout_p=self.dropout if self.training else 0, is_causal=True)
+            else:
+                y = torch.nn.functional.scaled_dot_product_attention(q, k, v, attn_mask = torch.triu(torch.ones((T, T), dtype=torch.bool)), dropout_p=self.dropout if self.training else 0, is_causal=True)
         else:
             # manual implementation of attention
             att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
@@ -101,8 +105,8 @@ class Block(nn.Module):
         self.ln_2 = LayerNorm(config.n_embd, bias=config.bias)
         self.mlp = MLP(config)
 
-    def forward(self, x):
-        x = x + self.attn(self.ln_1(x))
+    def forward(self, x, causal = True):
+        x = x + self.attn(self.ln_1(x), causal = causal)
         x = x + self.mlp(self.ln_2(x))
         return x
 
@@ -353,8 +357,7 @@ class Seer(nn.Module):
             wte = nn.Embedding(config.vocab_size, config.n_embd),
             wpe = nn.Embedding(config.block_size, config.n_embd),
             drop = nn.Dropout(config.dropout),
-            past_stream = nn.ModuleList([Block(config) for _ in range(config.n_layer)]),
-            future_stream = nn.ModuleList([Block(config) for _ in range(config.n_layer)]),
+            h = nn.ModuleList([Block(config) for _ in range(config.n_layer)]),
             ln_f = LayerNorm(config.n_embd, bias=config.bias),
         ))
         self.ln_p1 = LayerNorm(config.n_embd, bias = config.bias)
@@ -417,15 +420,15 @@ class Seer(nn.Module):
         x = self.transformer.drop(tok_emb + pos_emb)
 
         pst_x, fut_x = x, x
-        for pst_blk, fut_blk in zip(self.transformer.past_stream, self.transformer.future_stream):
-            pst_x = pst_blk(pst_x)
-            fut_x = fut_blk(fut_x)
+        for blk in self.transformer.h:
+            pst_x = blk(pst_x, causal = True)
+            fut_x = blk(fut_x, causal = False)
 
         pst_x = pst_x + self.mha_p(
-            self.ln_p1(pst_x)
+            self.ln_p1(pst_x), causal = True
         )
         fut_x = fut_x + self.mha_f(
-            self.ln_f1(fut_x)
+            self.ln_f1(fut_x), causal = False
         )        
         x = self.w_f(self.ln_f2(fut_x)) + self.w_p(self.ln_p2(pst_x))
         x = self.fusion(x)
