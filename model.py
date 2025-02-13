@@ -116,6 +116,16 @@ class GPTConfig:
     n_embd: int = 768
     dropout: float = 0.0
     bias: bool = True # True: bias in Linears and LayerNorms, like GPT-2. False: a bit better and faster
+    seer_layers: int = 0
+
+def ce_loss(logits, targets):
+    return F.cross_entropy(logits.view(-1, logits.size(-1)), targets.reshape(-1), ignore_index=-1)
+
+def kd_loss(st_logits, se_logits):
+    return torch.sum(torch.multiply(torch.log(st_logits), se_logits))
+
+def z_loss(logits):
+    return 1e-4 * (logsumexp(logits, dim = -1) ** 2).sum()
 
 class GPT(nn.Module):
 
@@ -124,7 +134,7 @@ class GPT(nn.Module):
         assert config.vocab_size is not None
         assert config.block_size is not None
         self.config = config
-
+        # Student Model:
         self.transformer = nn.ModuleDict(dict(
             wte = nn.Embedding(config.vocab_size, config.n_embd),
             wpe = nn.Embedding(config.block_size, config.n_embd),
@@ -137,7 +147,24 @@ class GPT(nn.Module):
         # "UserWarning: functional_call was passed multiple values for tied weights.
         # This behavior is deprecated and will be an error in future versions"
         # not 100% sure what this is, so far seems to be harmless. TODO investigate
-        self.transformer.wte.weight = self.lm_head.weight # https://paperswithcode.com/method/weight-tying
+        # self.transformer.wte.weight = self.lm_head.weight # https://paperswithcode.com/method/weight-tying
+
+        # Seer Model:
+        self.seer = None
+        if config.seer_layers > 0:
+            self.seer = nn.ModuleDict(
+                h = nn.ModuleList([Block(config) for _ in range(config.seer_layers)]),
+                ln_f = LayerNorm(config.n_embd, bias=config.bias),
+                ln_p1 = LayerNorm(config.n_embd, bias = config.bias),
+                mha_p = SelfAttention(config),
+                w_p = nn.Linear(config.n_embd, config.n_embd),
+                ln_p2 = LayerNorm(config.n_embd, bias = config.bias),
+                ln_f1 = LayerNorm(config.n_embd, bias = config.bias),
+                mha_f = SelfAttention(config),
+                w_f = nn.Linear(config.n_embd, config.n_embd),
+                ln_f2 = LayerNorm(config.n_embd, bias = config.bias),
+                fusion = MLP(config)
+            )
 
         # init all weights
         self.apply(self._init_weights)
@@ -149,7 +176,7 @@ class GPT(nn.Module):
         # report number of parameters
         print("number of parameters: %.2fM" % (self.get_num_params()/1e6,))
 
-    def get_num_params(self, non_embedding=True):
+    def get_num_params(self, non_embedding=True, train = True):
         """
         Return the number of parameters in the model.
         For non-embedding count (default), the position embeddings get subtracted.
@@ -158,7 +185,9 @@ class GPT(nn.Module):
         """
         n_params = sum(p.numel() for p in self.parameters())
         if non_embedding:
-            n_params -= self.transformer.wpe.weight.numel()
+            n_params -= self.transformer.wpe.weight.numel() + self.transformer.wte.weight.numel()
+        if not train and self.seer is not None:
+            n_params -= sum(param.numel() for param in self.seer.parameters())
         return n_params
 
     def _init_weights(self, module):
@@ -169,7 +198,40 @@ class GPT(nn.Module):
         elif isinstance(module, nn.Embedding):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
-    def forward(self, idx, targets=None):
+    def seer_forward(self, emb, device):
+        b, t, e = emb.size()
+        xl2r = emb[:, :-1]
+        xr2l = torch.flip(emb[:, 1:], dims = (1, ))
+
+        for blk in self.seer.h:
+            xl2r = blk(xl2r)
+            xr2l = blk(xr2l)
+
+        xl2r = xl2r + self.seer.mha_p(self.seer.ln_p1(xl2r))
+        xr2l = xr2l + self.seer.mha_f(self.seer.ln_f1(xr2l))
+
+        x = self.seer.w_f(
+            torch.concat(
+                [ 
+                  torch.flip(self.seer.ln_f2(xr2l), (1, )), # B x (S - 1) x d_m
+                  torch.zeros((b, 1, e), device = device)
+                ],
+                dim = 1
+              )
+          ) + self.seer.w_p(
+              torch.concat(
+                [
+                    torch.zeros((b, 1, e), device = device), 
+                    self.seer.ln_p2(xl2r)  # B x (S - 1) x d_m
+                ],
+                dim = 1                  
+              )
+          )
+
+        x = self.seer.fusion(x)
+        return self.seer.ln_f(x)
+
+    def forward(self, idx, targets=None, lamda = 0.3):
         device = idx.device
         b, t = idx.size()
         assert t <= self.config.block_size, f"Cannot forward sequence of length {t}, block size is only {self.config.block_size}"
@@ -178,22 +240,29 @@ class GPT(nn.Module):
         # forward the GPT model itself
         tok_emb = self.transformer.wte(idx) # token embeddings of shape (b, t, n_embd)
         pos_emb = self.transformer.wpe(pos) # position embeddings of shape (t, n_embd)
-        x = self.transformer.drop(tok_emb + pos_emb)
+        emb = self.transformer.drop(tok_emb + pos_emb)
+        x = emb
         for block in self.transformer.h:
             x = block(x)
         x = self.transformer.ln_f(x)
 
-        if targets is not None:
-            # if we are given some desired targets also calculate the loss
-            logits = self.lm_head(x)
-            loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1), ignore_index=-1)
-            loss = loss + 1e-4 * (logsumexp(logits, dim = -1) ** 2).sum()
-        else:
-            # inference-time mini-optimization: only forward the lm_head on the very last position
-            logits = self.lm_head(x[:, [-1], :]) # note: using list [-1] to preserve the time dim
-            loss = None
+        if targets is None:
+            return self.lm_head(x[:, [-1], :]), None
 
-        return logits, loss
+        # if we are given some desired targets also calculate the loss
+        st_logits = self.lm_head(x)
+        loss = ce_loss(st_logits, targets)
+        if self.seer is not None:
+            h = self.seer_forward(emb)
+            se_logits = self.lm_head(h)
+            loss = lamda * loss + (1 - lamda) * kd_loss(st_logits, se_logits)
+            loss = loss + ce_loss(se_logits, targets)
+        
+        loss = loss + z_loss(st_logits)
+        if self.seer is not None:
+            loss = loss + z_loss(se_logits)
+
+        return st_logits, loss
 
     def crop_block_size(self, block_size):
         # model surgery to decrease the block size if necessary
@@ -202,7 +271,10 @@ class GPT(nn.Module):
         assert block_size <= self.config.block_size
         self.config.block_size = block_size
         self.transformer.wpe.weight = nn.Parameter(self.transformer.wpe.weight[:block_size])
-        for block in self.transformer.h:
+        blks = self.transformer.h
+        if self.seer is not None:
+            blks += self.seer.h
+        for block in blks:
             if hasattr(block.attn, 'bias'):
                 block.attn.bias = block.attn.bias[:,:,:block_size,:block_size]
 
@@ -296,6 +368,7 @@ class GPT(nn.Module):
         N = self.get_num_params()
         cfg = self.config
         L, H, Q, T = cfg.n_layer, cfg.n_head, cfg.n_embd//cfg.n_head, cfg.block_size
+        L += cfg.seer_layers
         flops_per_token = 6*N + 12*L*H*Q*T
         flops_per_fwdbwd = flops_per_token * T
         flops_per_iter = flops_per_fwdbwd * fwdbwd_per_iter
@@ -331,189 +404,3 @@ class GPT(nn.Module):
             idx = torch.cat((idx, idx_next), dim=1)
 
         return idx
-
-@dataclass
-class SeerConfig:
-    block_size: int = 1024
-    vocab_size: int = 29 # GPT-2 vocab_size of 50257, padded up to nearest multiple of 64 for efficiency
-    n_layer: int = 12
-    n_head: int = 12
-    n_embd: int = 768
-    dropout: float = 0.0
-    bias: bool = True # True: bias in Linears and LayerNorms, like GPT-2. False: a bit better and faster
-
-class Seer(nn.Module):
-
-    def __init__(self, config, wte = None, wpe = None, lm_head = None):
-        super().__init__()
-        self.wte_shared = wte is not None
-        self.wpe_shared = wpe is not None
-        self.lm_head_shared = lm_head is not None
-
-        assert config.vocab_size is not None
-        assert config.block_size is not None
-        self.config = config
-
-        self.transformer = nn.ModuleDict(dict(
-            wte = wte or nn.Embedding(config.vocab_size, config.n_embd),
-            wpe = wpe or nn.Embedding(config.block_size, config.n_embd),
-            drop = nn.Dropout(config.dropout),
-            h = nn.ModuleList([Block(config) for _ in range(config.n_layer)]),
-            ln_f = LayerNorm(config.n_embd, bias=config.bias),
-        ))
-
-        self.ln_p1 = LayerNorm(config.n_embd, bias = config.bias)
-        self.mha_p = SelfAttention(config)
-        self.w_p = nn.Linear(config.n_embd, config.n_embd)
-        self.ln_p2 = LayerNorm(config.n_embd, bias = config.bias)
-
-        self.ln_f1 = LayerNorm(config.n_embd, bias = config.bias)
-        self.mha_f = SelfAttention(config)
-        self.w_f = nn.Linear(config.n_embd, config.n_embd)
-        self.ln_f2 = LayerNorm(config.n_embd, bias = config.bias)
-
-        self.fusion = MLP(config)
-
-        self.lm_head = lm_head or nn.Linear(config.n_embd, config.vocab_size, bias=False)
-
-        # init all weights
-        self.apply(self._init_weights)
-        # apply special scaled init to the residual projections, per GPT-2 paper
-        for pn, p in self.named_parameters():
-            if pn.endswith('c_proj.weight'):
-                torch.nn.init.normal_(p, mean=0.0, std=0.02/math.sqrt(2 * config.n_layer))
-
-        # report number of parameters
-        print("number of parameters: %.2fM" % (self.get_num_params()/1e6,))
-
-    def get_num_params(self, non_embedding=True):
-        """
-        Return the number of parameters in the model.
-        For non-embedding count (default), the position embeddings get subtracted.
-        The token embeddings would too, except due to the parameter sharing these
-        params are actually used as weights in the final layer, so we include them.
-        """
-        n_params = sum(p.numel() for p in self.parameters())
-
-        if self.wte_shared:
-            n_params -= self.transformer.wte.weight.numel()
-        if non_embedding or self.wpe_shared:
-            n_params -= self.transformer.wpe.weight.numel()
-        if self.lm_head_shared:
-            n_params -= self.lm_head.weight.numel()
-            if hasattr(self.lm_head, "bias") and self.lm_head.bias is not None:
-              n_params -= self.lm_head.bias.numel()
-
-        return n_params
-
-    def _init_weights(self, module):
-        if isinstance(module, nn.Linear):
-            torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
-            if module.bias is not None:
-                torch.nn.init.zeros_(module.bias)
-        elif isinstance(module, nn.Embedding):
-            torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
-
-    def forward(self, idx, targets=None):
-        device = idx.device
-        b, t = idx.size()
-        assert t <= self.config.block_size, f"Cannot forward sequence of length {t}, block size is only {self.config.block_size}"
-        pos = torch.arange(0, t, dtype=torch.long, device=device) # shape (t)
-
-        tok_emb = self.transformer.wte(idx) # token embeddings of shape (b, t, n_embd)
-        pos_emb = self.transformer.wpe(pos) # position embeddings of shape (t, n_embd)
-        x = self.transformer.drop(tok_emb + pos_emb)
-        xl2r = x[:, :-1]
-        xr2l = torch.flip(x[:, 1:], dims = (1, ))
-
-        for blk in self.transformer.h:
-            xl2r = blk(xl2r)
-            xr2l = blk(xr2l)
-
-        xl2r = xl2r + self.mha_p(self.ln_p1(xl2r))
-        xr2l = xr2l + self.mha_f(self.ln_f1(xr2l))
-
-        x = self.w_f(
-            torch.concat(
-                [ 
-                  torch.flip(self.ln_f2(xr2l), (1, )), # B x (S - 1) x d_m
-                  torch.zeros((b, 1, self.config.n_embd), device = device)
-                ],
-                dim = 1
-              )
-          ) + self.w_p(
-              torch.concat(
-                [
-                    torch.zeros((b, 1, self.config.n_embd), device = device), 
-                    self.ln_p2(xl2r)  # B x (S - 1) x d_m
-                ],
-                dim = 1                  
-              )
-          )
-
-        x = self.fusion(x)
-        x = self.transformer.ln_f(x)
-
-        logits = self.lm_head(x)
-        loss = None
-
-        if targets is not None:
-            # if we are given some desired targets also calculate the loss
-            loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.reshape(-1), ignore_index=-1) + 1e-4 * (logsumexp(logits, dim = -1) ** 2).sum()
-
-        return logits, loss
-
-    def crop_block_size(self, block_size):
-        # model surgery to decrease the block size if necessary
-        # e.g. we may load the GPT2 pretrained model checkpoint (block size 1024)
-        # but want to use a smaller block size for some smaller, simpler model
-        assert block_size <= self.config.block_size
-        self.config.block_size = block_size
-        self.transformer.wpe.weight = nn.Parameter(self.transformer.wpe.weight[:block_size])
-        for block in self.transformer.h:
-            if hasattr(block.attn, 'bias'):
-                block.attn.bias = block.attn.bias[:,:,:block_size,:block_size]
-
-    def get_unique_params(self):
-        for pn, p in self.named_parameters():
-          if not p.requires_grad:
-            continue
-          if self.wpe_shared and "wpe" in pn:
-            print("Dropping:", torch.numel(p), "WPE parameters")
-            continue
-          if self.wte_shared and "wte" in pn:
-            print("Dropping:", torch.numel(p), "WTE parameters")
-            continue
-          if self.lm_head_shared and "lm_head" in pn:
-            print("Dropping:", torch.numel(p), "LM head parameters")
-            continue
-          yield pn, p
-
-    def configure_optimizers(self, weight_decay, learning_rate, betas, device_type, student = None):
-        # All parameters that require gradients
-        seer_param_dict = {pn: p for pn, p in self.get_unique_params()}
-        # seer_param_dict = {pn: p for pn, p in self.named_parameters() if p.requires_grad}
-        print("Seer Named Parameters:", sum((p.numel() for p in seer_param_dict.values())))
-        student_param_dict = {pn: p for pn, p in student.named_parameters() if p.requires_grad}
-        print("Student Named Parameters:", sum((p.numel() for p in student_param_dict.values())))
-        params = [p for p in seer_param_dict.values()] + [p for p in student_param_dict.values()]
-        # create optim groups. Any parameters that is 2D will be weight decayed, otherwise no.
-        # i.e. all weight tensors in matmuls + embeddings decay, all biases and layernorms don't.
-        decay_params = [p for p in params if p.dim() >= 2]
-        nodecay_params = [p for p in params if p.dim() < 2]
-        optim_groups = [
-            {'params': decay_params, 'weight_decay': weight_decay},
-            {'params': nodecay_params, 'weight_decay': 0.0}
-        ]
-        num_decay_params = sum(p.numel() for p in decay_params)
-        num_nodecay_params = sum(p.numel() for p in nodecay_params)
-        print(f"num decayed parameter tensors: {len(decay_params)}, with {num_decay_params:,} parameters")
-        print(f"num non-decayed parameter tensors: {len(nodecay_params)}, with {num_nodecay_params:,} parameters")
-        # Create AdamW optimizer and use the fused version if it is available
-        fused_available = False # 'fused' in inspect.signature(torch.optim.AdamW).parameters
-        use_fused = fused_available and device_type == 'cuda'
-        extra_args = dict(fused=True) if use_fused else dict()
-        optimizer = torch.optim.AdamW(optim_groups, lr=learning_rate, betas=betas, **extra_args)
-        print(f"using fused AdamW: {use_fused}")
-
-        return optimizer
