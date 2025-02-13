@@ -51,7 +51,7 @@ class SelfAttention(nn.Module):
             self.register_buffer("bias", torch.tril(torch.ones(config.block_size, config.block_size))
                                         .view(1, 1, config.block_size, config.block_size))
 
-    def forward(self, x, causal = True):
+    def forward(self, x):
         B, T, C = x.size() # batch size, sequence length, embedding dimensionality (n_embd)
 
         # calculate query, key, values for all heads in batch and move head forward to be the batch dim
@@ -63,10 +63,7 @@ class SelfAttention(nn.Module):
         # causal self-attention; Self-attend: (B, nh, T, hs) x (B, nh, hs, T) -> (B, nh, T, T)
         if self.flash:
             # efficient attention using Flash Attention CUDA kernels
-            if causal:
-                y = torch.nn.functional.scaled_dot_product_attention(q, k, v, attn_mask=None, dropout_p=self.dropout if self.training else 0, is_causal=True)
-            else:
-                y = torch.nn.functional.scaled_dot_product_attention(q, k, v, attn_mask = torch.triu(torch.ones((T, T), dtype=torch.bool)), dropout_p=self.dropout if self.training else 0, is_causal=True)
+            y = torch.nn.functional.scaled_dot_product_attention(q, k, v, attn_mask=None, dropout_p=self.dropout if self.training else 0, is_causal=True)
         else:
             # manual implementation of attention
             att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
@@ -105,8 +102,8 @@ class Block(nn.Module):
         self.ln_2 = LayerNorm(config.n_embd, bias=config.bias)
         self.mlp = MLP(config)
 
-    def forward(self, x, causal = True):
-        x = x + self.attn(self.ln_1(x), causal = causal)
+    def forward(self, x):
+        x = x + self.attn(self.ln_1(x))
         x = x + self.mlp(self.ln_2(x))
         return x
 
@@ -349,6 +346,10 @@ class Seer(nn.Module):
 
     def __init__(self, config, wte = None, wpe = None, lm_head = None):
         super().__init__()
+        self.wte_shared = wte is not None
+        self.wpe_shared = wpe is not None
+        self.lm_head_shared = lm_head is not None
+
         assert config.vocab_size is not None
         assert config.block_size is not None
         self.config = config
@@ -360,6 +361,7 @@ class Seer(nn.Module):
             h = nn.ModuleList([Block(config) for _ in range(config.n_layer)]),
             ln_f = LayerNorm(config.n_embd, bias=config.bias),
         ))
+
         self.ln_p1 = LayerNorm(config.n_embd, bias = config.bias)
         self.mha_p = SelfAttention(config)
         self.w_p = nn.Linear(config.n_embd, config.n_embd)
@@ -373,11 +375,6 @@ class Seer(nn.Module):
         self.fusion = MLP(config)
 
         self.lm_head = lm_head or nn.Linear(config.n_embd, config.vocab_size, bias=False)
-        # with weight tying when using torch.compile() some warnings get generated:
-        # "UserWarning: functional_call was passed multiple values for tied weights.
-        # This behavior is deprecated and will be an error in future versions"
-        # not 100% sure what this is, so far seems to be harmless. TODO investigate
-        # self.transformer.wte.weight = self.lm_head.weight # https://paperswithcode.com/method/weight-tying
 
         # init all weights
         self.apply(self._init_weights)
@@ -397,8 +394,16 @@ class Seer(nn.Module):
         params are actually used as weights in the final layer, so we include them.
         """
         n_params = sum(p.numel() for p in self.parameters())
-        if non_embedding:
+
+        if self.wte_shared:
+            n_params -= self.transformer.wte.weight.numel()
+        if non_embedding or self.wpe_shared:
             n_params -= self.transformer.wpe.weight.numel()
+        if self.lm_head_shared:
+            n_params -= self.lm_head.weight.numel()
+            if hasattr(self.lm_head, "bias") and self.lm_head.bias is not None:
+              n_params -= self.lm_head.bias.numel()
+
         return n_params
 
     def _init_weights(self, module):
@@ -418,30 +423,43 @@ class Seer(nn.Module):
         tok_emb = self.transformer.wte(idx) # token embeddings of shape (b, t, n_embd)
         pos_emb = self.transformer.wpe(pos) # position embeddings of shape (t, n_embd)
         x = self.transformer.drop(tok_emb + pos_emb)
+        xl2r = x[:, :-1]
+        xr2l = torch.flip(x[:, 1:], dims = (1, ))
 
-        pst_x, fut_x = x, x
         for blk in self.transformer.h:
-            pst_x = blk(pst_x, causal = True)
-            fut_x = blk(fut_x, causal = False)
+            xl2r = blk(xl2r)
+            xr2l = blk(xr2l)
 
-        pst_x = pst_x + self.mha_p(
-            self.ln_p1(pst_x), causal = True
-        )
-        fut_x = fut_x + self.mha_f(
-            self.ln_f1(fut_x), causal = False
-        )        
-        x = self.w_f(self.ln_f2(fut_x)) + self.w_p(self.ln_p2(pst_x))
+        xl2r = xl2r + self.mha_p(self.ln_p1(xl2r))
+        xr2l = xr2l + self.mha_f(self.ln_f1(xr2l))
+
+        x = self.w_f(
+            torch.concat(
+                [ 
+                  torch.flip(self.ln_f2(xr2l), (1, )), # B x (S - 1) x d_m
+                  torch.zeros((b, 1, self.config.n_embd), device = device)
+                ],
+                dim = 1
+              )
+          ) + self.w_p(
+              torch.concat(
+                [
+                    torch.zeros((b, 1, self.config.n_embd), device = device), 
+                    self.ln_p2(xl2r)  # B x (S - 1) x d_m
+                ],
+                dim = 1                  
+              )
+          )
+
         x = self.fusion(x)
         x = self.transformer.ln_f(x)
 
+        logits = self.lm_head(x)
+        loss = None
+
         if targets is not None:
             # if we are given some desired targets also calculate the loss
-            logits = self.lm_head(x)
-            loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1), ignore_index=-1) + 1e-4 * (logsumexp(logits, dim = -1) ** 2).sum()
-        else:
-            # inference-time mini-optimization: only forward the lm_head on the very last position
-            logits = self.lm_head(x[:, [-1], :]) # note: using list [-1] to preserve the time dim
-            loss = None
+            loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.reshape(-1), ignore_index=-1) + 1e-4 * (logsumexp(logits, dim = -1) ** 2).sum()
 
         return logits, loss
 
@@ -456,15 +474,33 @@ class Seer(nn.Module):
             if hasattr(block.attn, 'bias'):
                 block.attn.bias = block.attn.bias[:,:,:block_size,:block_size]
 
-    def configure_optimizers(self, weight_decay, learning_rate, betas, device_type):
-        # start with all of the candidate parameters
-        param_dict = {pn: p for pn, p in self.named_parameters()}
-        # filter out those that do not require grad
-        param_dict = {pn: p for pn, p in param_dict.items() if p.requires_grad}
+    def get_unique_params(self):
+        for pn, p in self.named_parameters():
+          if not p.requires_grad:
+            continue
+          if self.wpe_shared and "wpe" in pn:
+            print("Dropping:", torch.numel(p), "WPE parameters")
+            continue
+          if self.wte_shared and "wte" in pn:
+            print("Dropping:", torch.numel(p), "WTE parameters")
+            continue
+          if self.lm_head_shared and "lm_head" in pn:
+            print("Dropping:", torch.numel(p), "LM head parameters")
+            continue
+          yield pn, p
+
+    def configure_optimizers(self, weight_decay, learning_rate, betas, device_type, student = None):
+        # All parameters that require gradients
+        seer_param_dict = {pn: p for pn, p in self.get_unique_params()}
+        # seer_param_dict = {pn: p for pn, p in self.named_parameters() if p.requires_grad}
+        print("Seer Named Parameters:", sum((p.numel() for p in seer_param_dict.values())))
+        student_param_dict = {pn: p for pn, p in student.named_parameters() if p.requires_grad}
+        print("Student Named Parameters:", sum((p.numel() for p in student_param_dict.values())))
+        params = [p for p in seer_param_dict.values()] + [p for p in student_param_dict.values()]
         # create optim groups. Any parameters that is 2D will be weight decayed, otherwise no.
         # i.e. all weight tensors in matmuls + embeddings decay, all biases and layernorms don't.
-        decay_params = [p for n, p in param_dict.items() if p.dim() >= 2]
-        nodecay_params = [p for n, p in param_dict.items() if p.dim() < 2]
+        decay_params = [p for p in params if p.dim() >= 2]
+        nodecay_params = [p for p in params if p.dim() < 2]
         optim_groups = [
             {'params': decay_params, 'weight_decay': weight_decay},
             {'params': nodecay_params, 'weight_decay': 0.0}
@@ -474,12 +510,10 @@ class Seer(nn.Module):
         print(f"num decayed parameter tensors: {len(decay_params)}, with {num_decay_params:,} parameters")
         print(f"num non-decayed parameter tensors: {len(nodecay_params)}, with {num_nodecay_params:,} parameters")
         # Create AdamW optimizer and use the fused version if it is available
-        fused_available = 'fused' in inspect.signature(torch.optim.AdamW).parameters
+        fused_available = False # 'fused' in inspect.signature(torch.optim.AdamW).parameters
         use_fused = fused_available and device_type == 'cuda'
         extra_args = dict(fused=True) if use_fused else dict()
         optimizer = torch.optim.AdamW(optim_groups, lr=learning_rate, betas=betas, **extra_args)
         print(f"using fused AdamW: {use_fused}")
 
         return optimizer
-
-    
