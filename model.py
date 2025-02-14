@@ -116,7 +116,7 @@ class GPTConfig:
     n_embd: int = 768
     dropout: float = 0.0
     bias: bool = True # True: bias in Linears and LayerNorms, like GPT-2. False: a bit better and faster
-    seer_layers: int = 0
+    n_slayer: int = 0
 
 def ce_loss(logits, targets):
     return F.cross_entropy(logits.view(-1, logits.size(-1)), targets.reshape(-1), ignore_index=-1)
@@ -151,9 +151,9 @@ class GPT(nn.Module):
 
         # Seer Model:
         self.seer = None
-        if config.seer_layers > 0:
+        if config.n_slayer > 0:
             self.seer = nn.ModuleDict(
-                h = nn.ModuleList([Block(config) for _ in range(config.seer_layers)]),
+                h = nn.ModuleList([Block(config) for _ in range(config.n_slayer)]),
                 ln_f = LayerNorm(config.n_embd, bias=config.bias),
                 ln_p1 = LayerNorm(config.n_embd, bias = config.bias),
                 mha_p = SelfAttention(config),
@@ -231,7 +231,8 @@ class GPT(nn.Module):
         x = self.seer.fusion(x)
         return self.seer.ln_f(x)
 
-    def forward(self, idx, targets=None, lamda = 0.3):
+    def forward(self, idx, targets=None, evaluate = False, lamda = 0.3):
+        inference = targets is None
         device = idx.device
         b, t = idx.size()
         assert t <= self.config.block_size, f"Cannot forward sequence of length {t}, block size is only {self.config.block_size}"
@@ -241,22 +242,27 @@ class GPT(nn.Module):
         tok_emb = self.transformer.wte(idx) # token embeddings of shape (b, t, n_embd)
         pos_emb = self.transformer.wpe(pos) # position embeddings of shape (t, n_embd)
         emb = self.transformer.drop(tok_emb + pos_emb)
-        x = emb
+
         for block in self.transformer.h:
             x = block(x)
         x = self.transformer.ln_f(x)
 
-        if targets is None:
+        if inference:
             return self.lm_head(x[:, [-1], :]), None
 
         # if we are given some desired targets also calculate the loss
-        st_logits = self.lm_head(x)
+        st_logits = self.lm_head(x) # Tokens 2:ctx_len + 1
         loss = ce_loss(st_logits, targets)
+
+        if evaluate:
+            return st_logits, loss
+
+        # Auxiliary Training Losses
         if self.seer is not None:
             h = self.seer_forward(emb)
-            se_logits = self.lm_head(h)
-            loss = lamda * loss + (1 - lamda) * kd_loss(st_logits, se_logits)
-            loss = loss + ce_loss(se_logits, targets)
+            se_logits = self.lm_head(h) # 1 : ctx_len
+            loss = lamda * loss + (1 - lamda) * kd_loss(st_logits[:, :-1], se_logits[:, 1:]) # The seer only predicts tokens within context window.
+            loss = loss + ce_loss(se_logits, idx) # No right-shifting needed.
         
         loss = loss + z_loss(st_logits)
         if self.seer is not None:
@@ -367,8 +373,7 @@ class GPT(nn.Module):
         # see PaLM paper Appendix B as ref: https://arxiv.org/abs/2204.02311
         N = self.get_num_params()
         cfg = self.config
-        L, H, Q, T = cfg.n_layer, cfg.n_head, cfg.n_embd//cfg.n_head, cfg.block_size
-        L += cfg.seer_layers
+        L, H, Q, T = cfg.n_layer + cfg.n_slayer, cfg.n_head, cfg.n_embd//cfg.n_head, cfg.block_size
         flops_per_token = 6*N + 12*L*H*Q*T
         flops_per_fwdbwd = flops_per_token * T
         flops_per_iter = flops_per_fwdbwd * fwdbwd_per_iter
