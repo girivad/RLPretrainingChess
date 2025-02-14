@@ -130,7 +130,7 @@ def ce_loss(logits, targets):
 def kd_loss(st_logits, se_logits):
     st_probs = smooth(F.softmax(st_logits, dim = -1)) 
     se_probs = F.softmax(se_logits, dim = -1)
-    return torch.sum(
+    return -1 * torch.sum(
         torch.multiply(
             torch.log(st_probs), 
             se_probs
