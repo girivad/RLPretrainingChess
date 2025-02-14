@@ -117,6 +117,7 @@ class GPTConfig:
     dropout: float = 0.0
     bias: bool = True # True: bias in Linears and LayerNorms, like GPT-2. False: a bit better and faster
     n_slayer: int = 0
+    lamda: float = 0.5
 
 alpha = 0.01
 def smooth(probs):
@@ -282,7 +283,7 @@ class GPT(nn.Module):
         if self.seer is not None:
             h = self.seer_forward(emb, device = device)
             se_logits = self.lm_head(h) # 1 : ctx_len
-            loss = lamda * loss + (1 - lamda) * kd_loss(st_logits[:, :-1], se_logits[:, 1:]) # The seer only predicts tokens within context window.
+            loss = self.config.lamda * loss + (1 - self.config.lamda) * kd_loss(st_logits[:, :-1], se_logits[:, 1:]) # The seer only predicts tokens within context window.
             assert not torch.any(torch.isnan(loss))
             loss = loss + ce_loss(se_logits, idx) # No right-shifting needed.
             assert not torch.any(torch.isnan(loss))
