@@ -283,7 +283,6 @@ class GPT(nn.Module):
             h = self.seer_forward(emb, device = device)
             se_logits = self.lm_head(h) # 1 : ctx_len
             loss = lamda * loss + (1 - lamda) * kd_loss(st_logits[:, :-1], se_logits[:, 1:]) # The seer only predicts tokens within context window.
-            print("KDLoss:", loss.item())
             assert not torch.any(torch.isnan(loss))
             loss = loss + ce_loss(se_logits, idx) # No right-shifting needed.
             assert not torch.any(torch.isnan(loss))
