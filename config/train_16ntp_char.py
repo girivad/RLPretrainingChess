@@ -25,7 +25,7 @@ block_size = 1023  # context of up to 1023 tokens (because dataset block size is
 
 # baby GPT model :)
 n_slayer = 0
-n_layer = 8
+n_layer = 16
 n_head = 8
 n_embd = 512,
 dropout = 0.0, # for pretraining 0 is good, for finetuning try 0.1+

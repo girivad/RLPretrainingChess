@@ -174,7 +174,11 @@ class GPT(nn.Module):
                 torch.nn.init.normal_(p, mean=0.0, std=0.02/math.sqrt(2 * config.n_layer))
 
         # report number of parameters
-        print("number of parameters: %.2fM" % (self.get_num_params()/1e6,))
+        num_params = self.get_num_params()
+        if num_params < 1e9:
+            print("number of parameters: %.2fM" % (num_params/1e6,))
+        else:
+            print("number of parameters: %.2fM" % (num_params/1e9,))
 
     def get_num_params(self, non_embedding=True, train = True):
         """
