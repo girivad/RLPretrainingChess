@@ -2,7 +2,7 @@ import os
 
 model_dir = "../../model_vol"
 data_dir = "../../model_vol/data_dir/pretrain"
-run_name = "16layer_ntp_lichess"
+run_name = "4-4layer_mtp_lichess"
 
 out_dir = os.path.join(model_dir, run_name)
 eval_interval = 4000
@@ -19,13 +19,13 @@ wandb_project = "chessformer"
 wandb_run_name = run_name
 
 dataset = data_dir
-gradient_accumulation_steps = 4
-batch_size = 25
+gradient_accumulation_steps = 2
+batch_size = 50
 block_size = 1023  # context of up to 1023 tokens (because dataset block size is 1024)
 
 # baby GPT model :)
-n_slayer = 0
-n_layer = 16
+n_slayer = 4
+n_layer = 4
 n_head = 8
 n_embd = 512
 dropout = 0.0 # for pretraining 0 is good, for finetuning try 0.1+

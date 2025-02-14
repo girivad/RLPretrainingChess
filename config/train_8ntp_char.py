@@ -19,16 +19,16 @@ wandb_project = "chessformer"
 wandb_run_name = run_name
 
 dataset = data_dir
-gradient_accumulation_steps = 1
-batch_size = 100
+gradient_accumulation_steps = 2
+batch_size = 50
 block_size = 1023  # context of up to 1023 tokens (because dataset block size is 1024)
 
 # baby GPT model :)
 n_slayer = 0
 n_layer = 8
 n_head = 8
-n_embd = 512,
-dropout = 0.0, # for pretraining 0 is good, for finetuning try 0.1+
+n_embd = 512
+dropout = 0.0 # for pretraining 0 is good, for finetuning try 0.1+
 bias = False # do we use bias inside LayerNorm and Linear layers?
 
 learning_rate = 3e-4
