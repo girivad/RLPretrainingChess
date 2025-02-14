@@ -118,11 +118,24 @@ class GPTConfig:
     bias: bool = True # True: bias in Linears and LayerNorms, like GPT-2. False: a bit better and faster
     n_slayer: int = 0
 
+alpha = 0.01
+def smooth(probs):
+    # probs: B x S x V
+    V = probs.size(-1)
+    return (probs + alpha) / (1 + V * alpha)
+
 def ce_loss(logits, targets):
     return F.cross_entropy(logits.view(-1, logits.size(-1)), targets.reshape(-1), ignore_index=-1)
 
 def kd_loss(st_logits, se_logits):
-    return torch.sum(torch.multiply(torch.log(st_logits), se_logits))
+    st_probs = smooth(F.softmax(st_logits, dim = -1)) 
+    se_probs = F.softmax(se_logits, dim = -1)
+    return torch.sum(
+        torch.multiply(
+            torch.log(st_probs), 
+            se_probs
+        )
+    )
 
 def z_loss(logits):
     return 1e-4 * (logsumexp(logits, dim = -1) ** 2).sum()
@@ -152,7 +165,7 @@ class GPT(nn.Module):
         # Seer Model:
         self.seer = None
         if config.n_slayer > 0:
-            self.seer = nn.ModuleDict(
+            self.seer = nn.ModuleDict(dict(
                 h = nn.ModuleList([Block(config) for _ in range(config.n_slayer)]),
                 ln_f = LayerNorm(config.n_embd, bias=config.bias),
                 ln_p1 = LayerNorm(config.n_embd, bias = config.bias),
@@ -164,7 +177,7 @@ class GPT(nn.Module):
                 w_f = nn.Linear(config.n_embd, config.n_embd),
                 ln_f2 = LayerNorm(config.n_embd, bias = config.bias),
                 fusion = MLP(config)
-            )
+            ))
 
         # init all weights
         self.apply(self._init_weights)
@@ -247,6 +260,8 @@ class GPT(nn.Module):
         pos_emb = self.transformer.wpe(pos) # position embeddings of shape (t, n_embd)
         emb = self.transformer.drop(tok_emb + pos_emb)
 
+        x = emb
+
         for block in self.transformer.h:
             x = block(x)
         x = self.transformer.ln_f(x)
@@ -258,19 +273,26 @@ class GPT(nn.Module):
         st_logits = self.lm_head(x) # Tokens 2:ctx_len + 1
         loss = ce_loss(st_logits, targets)
 
+        assert not torch.any(torch.isnan(loss))
+
         if evaluate:
             return st_logits, loss
 
         # Auxiliary Training Losses
         if self.seer is not None:
-            h = self.seer_forward(emb)
+            h = self.seer_forward(emb, device = device)
             se_logits = self.lm_head(h) # 1 : ctx_len
             loss = lamda * loss + (1 - lamda) * kd_loss(st_logits[:, :-1], se_logits[:, 1:]) # The seer only predicts tokens within context window.
+            print("KDLoss:", loss.item())
+            assert not torch.any(torch.isnan(loss))
             loss = loss + ce_loss(se_logits, idx) # No right-shifting needed.
+            assert not torch.any(torch.isnan(loss))
         
         loss = loss + z_loss(st_logits)
+        assert not torch.any(torch.isnan(loss))
         if self.seer is not None:
             loss = loss + z_loss(se_logits)
+        assert not torch.any(torch.isnan(loss))
 
         return st_logits, loss
 
