@@ -28,20 +28,9 @@ class StockfishPlayer(Player):
         self._elo = elo
         self._skill = skill
 
-        if self._skill == -2:
-            legal_moves = list(board.legal_moves)
-            random_move = random.choice(legal_moves)
-            return board.san(random_move)
-
         if self._elo is not None:
             self._engine.configure({"UCI_Elo": self._elo})
             result = self._engine.play(board, chess.engine.Limit(time=self._play_time))
-
-        elif self._skill < 0:
-            self._engine.configure({"Skill Level": 0})
-            result = self._engine.play(
-                board, chess.engine.Limit(time=1e-8, depth=1, nodes=1)
-            )
 
         else:
             self._engine.configure({"Skill Level": self._skill})
@@ -116,6 +105,3 @@ class GPTPlayer(Player):
 
     def get_config(self) -> dict:
         return {"ckpt": self.ckpt_path, "topk": self.k}
-
-    def close(self):
-        pass

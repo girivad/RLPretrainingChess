@@ -8,3 +8,5 @@ __pycache__/
 *.pt
 *.pyc
 input.txt
+players/stockfish/
+players/stockfish-ubuntu-x86-64.tar
