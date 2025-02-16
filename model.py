@@ -131,14 +131,16 @@ def ce_loss(logits, targets):
     return F.cross_entropy(logits.view(-1, logits.size(-1)), targets.reshape(-1), ignore_index=-1)
 
 def kd_loss(st_logits, se_logits):
+    b, t, _ = st_logits.size()
     st_probs = smooth(F.softmax(st_logits, dim = -1)) 
     se_probs = F.softmax(se_logits, dim = -1)
-    return -1 * torch.sum(
+    kld = torch.sum(
         torch.multiply(
             torch.log(st_probs), 
             se_probs
         )
     )
+    return -1 * kld / (b * t)
 
 def z_loss(logits):
     return 1e-4 * (logsumexp(logits, dim = -1) ** 2).sum()
