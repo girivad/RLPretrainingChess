@@ -423,6 +423,22 @@ class GPT(nn.Module):
         return mfu
 
     @torch.no_grad()
+    def generate_token(self, idx, temperature = 1.0, top_k = None):
+        logits, _ = self(idx)
+        # pluck the logits at the final step and scale by desired temperature
+        logits = logits[:, -1, :] / temperature
+        # optionally crop the logits to only the top k options
+        if top_k is not None:
+            v, _ = torch.topk(logits, min(top_k, logits.size(-1)))
+            logits[logits < v[:, [-1]]] = -float('Inf')
+        # apply softmax to convert logits to (normalized) probabilities
+        probs = F.softmax(logits, dim=-1)
+        # Sample next tokens
+        next_tokens = torch.multinomial(probs, num_samples = 1)
+
+        return next_tokens
+        
+    @torch.no_grad()
     def generate(self, idx, max_new_tokens, temperature=1.0, top_k=None):
         """
         Take a conditioning sequence of indices idx (LongTensor of shape (b,t)) and complete
@@ -432,24 +448,17 @@ class GPT(nn.Module):
         for _ in range(max_new_tokens):
             # if the sequence context is growing too long we must crop it at block_size
             idx_cond = idx if idx.size(1) <= self.config.block_size else idx[:, -self.config.block_size:]
-            # forward the model to get the logits for the index in the sequence
-            logits, _ = self(idx_cond)
-            # pluck the logits at the final step and scale by desired temperature
-            logits = logits[:, -1, :] / temperature
-            # optionally crop the logits to only the top k options
-            if top_k is not None:
-                v, _ = torch.topk(logits, min(top_k, logits.size(-1)))
-                logits[logits < v[:, [-1]]] = -float('Inf')
-            # apply softmax to convert logits to (normalized) probabilities
-            probs = F.softmax(logits, dim=-1)
-            # sample from the distribution
-            idx_next = torch.multinomial(probs, num_samples=1)
+            idx_next = self.generate_token(idx_cond, temperature = temperature, top_k = top_k)            
             # append sampled index to the running sequence and continue
             idx = torch.cat((idx, idx_next), dim=1)
 
         return idx
     
+    @torch.no_grad()
     def generate_moves(self, games, max_move_size = 5, temperature = 1.0, top_k = None):
+        """
+        Take a list of tokenized games. Autoregressively predict the next move with up to max_move_size tokens for each game, and output as token ids.
+        """
         min_prompt_len = min((len(game) for game in games))
         max_prompt_len = max((len(game) for game in games))
         max_token = max_prompt_len + max_move_size
@@ -461,17 +470,7 @@ class GPT(nn.Module):
         mv_msk = games_tensor == -1
 
         for token in range(min_prompt_len, max_token):
-            logits, _ = self(games_tensor[:, :token])
-            # pluck the logits at the final step and scale by desired temperature
-            logits = logits[:, -1, :] / temperature
-            # optionally crop the logits to only the top k options
-            if top_k is not None:
-                v, _ = torch.topk(logits, min(top_k, logits.size(-1)))
-                logits[logits < v[:, [-1]]] = -float('Inf')
-            # apply softmax to convert logits to (normalized) probabilities
-            probs = F.softmax(logits, dim=-1)
-            # Sample next tokens
-            next_tokens = torch.multinomial(probs, num_samples = 1)
+            next_tokens = self.generate_token(games_tensor[:, :token], temperature = temperature, top_k = top_k)
             # Store next tokens if it is writing into an allotted move slot (within the max_move_size)
             games_tensor[:, token] = torch.where(mv_msk[:, token], next_tokens, games_tensor[:, token])
         

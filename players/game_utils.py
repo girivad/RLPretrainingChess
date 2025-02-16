@@ -12,6 +12,32 @@ class GameState(object):
         self.turn = random.randint(0, 1)
         self.w_player_id = self.turn
     
+    def draw(self): 
+        self.outcome = "1/2-1/2"
+
+    def resign(self):
+        w_outcome = 0 if self.turn == self.w_player_id else 1
+        self.outcome = "{}-{}".format(
+            w_outcome,
+            1 - w_outcome
+        )
+
+    def register_move(self, move):
+        # TODO: Parse and Validate Move
+
+        move_uci = ""
+        self.board.push(move_uci)
+        self.state += move_uci + " " # TODO: Prevents the model from resigning...
+        
+        outcome = self.board.outcome()
+
+        if outcome is None:
+            # Next Turn
+            self.turn = 1 - self.turn
+            return
+        
+        self.outcome = self.board.result()
+
     def is_complete(self):
         return self.outcome != ""
 

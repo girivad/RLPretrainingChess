@@ -1,4 +1,4 @@
-import chess, random, torch
+import chess, torch
 from model import GPT, GPTConfig
 from typing import Optional, List
 from tokenizer import load_tokenizer
@@ -13,9 +13,9 @@ class StockfishPlayer(object):
         stockfish_path = "stockfish_exec"
         self._engine = chess.engine.SimpleEngine.popen_uci(stockfish_path)
 
-    def get_move(
+    def play_move(
         self, game_state: GameState
-    ) -> Optional[str]:
+    ):
         self._engine.configure({"UCI_Elo": game_state.sf_rating})
         result = self._engine.play(game_state.board, chess.engine.Limit(time=self._play_time))
 
@@ -68,20 +68,19 @@ class GPTPlayer(object):
         self.temperature = temp
         self.max_move_size = 5
 
-    def get_moves(
+    def play_moves(
         self, games: List[GameState]
-    ) -> Optional[str]:
-        games = list(
-            map(
-                lambda game: torch.tensor(self.tokenizer({"state": game.state}, "state"), device = self.device),
-                games
-            )
-        )
-
+    ):
+        games = [torch.tensor(self.tokenizer({"state": game.state}, "state"), device = self.device) for game in games]
         idx_moves = self.model.generate_moves(games, max_move_size = self.max_move_size, temperature = self.temp, top_k = self.k)
         str_moves = self.detokenizer(idx_moves)
-        
-        return [move.split()[0] for move in str_moves]
+        moves = [move.split()[0] for move in str_moves]
+
+        for game_state, move in zip(games, moves):
+            if ";" in move:
+                game_state.resign()
+            else:
+                game_state.register_move(move)
 
     def get_config(self) -> dict:
         return {"ckpt": self.ckpt_path, "topk": self.k}

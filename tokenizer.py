@@ -3,9 +3,9 @@ import numpy as np
 import torch
 from typing import List
 
-def load_tokenizer(dtype = np.uint8):
+def load_tokenizer(tokenizer_dir = "./data/lichess_hf_dataset", dtype = np.uint8):
     dropped_chars = {".", "0", "9"}
-    meta_path = os.path.join(os.path.dirname(__file__), "meta.pkl")
+    meta_path = os.path.join(tokenizer_dir, "meta.pkl")
     with open(meta_path, "rb") as f:
         meta = pickle.load(f)
     stoi = meta["stoi"]
