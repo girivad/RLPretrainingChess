@@ -1,4 +1,4 @@
-import argparse, os
+import argparse, os, chess
 from torch.distributed import init_process_group, destroy_process_group
 from players import GPTPlayer, StockfishPlayer
 from math import ceil
@@ -23,12 +23,13 @@ device = f"cuda:{ddp_local_rank}"
 
 gpt_player = GPTPlayer(args.ckpt, device, ddp_local_rank)
 stockfish_player = StockfishPlayer(args.play_time)
+sf_engine = chess.engine.SimpleEngine.popen_uci("stockfish_exec")
 
 local_bsz = args.eval_bsz // ddp_world_size
 local_pgn = open(args.pgn_loc + ddp_local_rank, "w")
 
 games_played = 0
-game_states = [GameState(idx) for idx in range(local_bsz)]
+game_states = [GameState(idx, sf_engine) for idx in range(local_bsz)]
 base_game_id = local_bsz
 
 while games_played < args.games:
@@ -47,11 +48,12 @@ while games_played < args.games:
 
         game_states = [game_state for game_state in game_states if not game_state.is_complete()]
         new_games = min(local_bsz - len(game_states), args.games - games_played - len(game_states))
-        game_states += [GameState(base_game_id + game_id) for game_id in range(new_games)]
+        game_states += [GameState(base_game_id + game_id, sf_engine) for game_id in range(new_games)]
         base_game_id += new_games
 
 local_pgn.close()
 stockfish_player.close()
+sf_engine.close()
 
 if ddp_local_rank != 0:
     destroy_process_group()

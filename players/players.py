@@ -34,9 +34,8 @@ class StockfishPlayer(object):
     def close(self):
         self._engine.quit()
 
-# TODO: Implement Distributed Inference
 class GPTPlayer(object):
-    def __init__(self, ckpt_path, device = "", rank = 0, topk = 5, temp = 1):
+    def __init__(self, ckpt_path, device = "", rank = 0, topk = 29, temp = 1):
         self.ckpt_path = ckpt_path
         self.device = device
 
@@ -58,7 +57,7 @@ class GPTPlayer(object):
             if k.startswith(unwanted_prefix):
                 state_dict[k[len(unwanted_prefix):]] = state_dict.pop(k)
         self.model.load_state_dict(state_dict)
-        
+        self.model = torch.compile(self.model)
         self.model = DDP(self.model, device_ids=[rank])
         self.model.eval()
 
@@ -80,7 +79,7 @@ class GPTPlayer(object):
             if ";" in move:
                 game_state.resign()
             else:
-                game_state.register_move(move)
+                game_state.register_move(move, parse_move = True)
 
     def get_config(self) -> dict:
         return {"ckpt": self.ckpt_path, "topk": self.k}
