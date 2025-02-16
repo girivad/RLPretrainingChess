@@ -1,6 +1,7 @@
 import os, pickle, re
 import numpy as np
 import torch
+from typing import List
 
 def load_tokenizer(dtype = np.uint8):
     dropped_chars = {".", "0", "9"}
@@ -32,17 +33,14 @@ def load_tokenizer(dtype = np.uint8):
         )
     
     def detokenize(idx):
-        # idx may be a numpy array or a tensor
+        # idx may be a numpy array or a tensor or a List[List[int]]
         if isinstance(idx, torch.Tensor):
             idx = idx.detach().clone().numpy()
-
         # idx may be a single array or an array of arrays
-        if len(idx.shape) == 2:
-            return [
-                "".join(itos[idx[i, j]] for j in range(idx.shape[1])) 
-                for i in range(idx.shape[0])
-            ]
-        
-        return "".join(itos[idx[j]] for j in range(idx.shape[0])) 
+        if type(idx[0]) == int:
+            return "".join(itos[idx[j]] for j in range(len(idx)))
+        return [
+            "".join(itos[idx[i][j]] for j in range(len(idx[i]))) for i in range(len(idx))
+        ]
 
     return tokenize, detokenize

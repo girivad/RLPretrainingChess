@@ -448,3 +448,31 @@ class GPT(nn.Module):
             idx = torch.cat((idx, idx_next), dim=1)
 
         return idx
+    
+    def generate_moves(self, games, max_move_size = 5, temperature = 1.0, top_k = None):
+        min_prompt_len = min((len(game) for game in games))
+        max_prompt_len = max((len(game) for game in games))
+        max_token = max_prompt_len + max_move_size
+        games_tensor = torch.tensor(
+            [
+                list(game) + [-1] * max_move_size + [-2] * (max_prompt_len - len(game) - max_move_size) for game in games
+            ]
+        )
+        mv_msk = games_tensor == -1
+
+        for token in range(min_prompt_len, max_token):
+            logits, _ = self(games_tensor[:, :token])
+            # pluck the logits at the final step and scale by desired temperature
+            logits = logits[:, -1, :] / temperature
+            # optionally crop the logits to only the top k options
+            if top_k is not None:
+                v, _ = torch.topk(logits, min(top_k, logits.size(-1)))
+                logits[logits < v[:, [-1]]] = -float('Inf')
+            # apply softmax to convert logits to (normalized) probabilities
+            probs = F.softmax(logits, dim=-1)
+            # Sample next tokens
+            next_tokens = torch.multinomial(probs, num_samples = 1)
+            # Store next tokens if it is writing into an allotted move slot (within the max_move_size)
+            games_tensor[:, token] = torch.where(mv_msk[:, token], next_tokens, games_tensor[:, token])
+        
+        return [list(games_tensor[s, mv_msk[s]]) for s in range(games_tensor.size(0))]

@@ -2,62 +2,41 @@ import chess, random, torch
 from model import GPT, GPTConfig
 from typing import Optional, List
 from tokenizer import load_tokenizer
-import numpy as np
+from torch.nn.parallel import DistributedDataParallel as DDP
+from game_utils import GameState
 
 # Adapted from https://github.com/adamkarvonen/chess_gpt_eval/blob/master/main.py
 
-# Define base Player class
-class Player:
-    def get_move(self, board: chess.Board, game_state: str, temperature: float, **kwargs) -> str:
-        raise NotImplementedError
-
-    def get_config(self) -> dict:
-        raise NotImplementedError
-    
-class StockfishPlayer(Player):
+class StockfishPlayer(object):
     def __init__(self, play_time: float):
         self._play_time = play_time
-        # If getting started, you need to run brew install stockfish
         stockfish_path = "stockfish_exec"
         self._engine = chess.engine.SimpleEngine.popen_uci(stockfish_path)
 
     def get_move(
-        self, board: chess.Board, game_state: str, temperature: float, elo: int = None, skill: int = None
+        self, game_state: GameState
     ) -> Optional[str]:
-        assert elo or skill
-        self._elo = elo
-        self._skill = skill
+        self._engine.configure({"UCI_Elo": game_state.sf_rating})
+        result = self._engine.play(game_state.board, chess.engine.Limit(time=self._play_time))
 
-        if self._elo is not None:
-            self._engine.configure({"UCI_Elo": self._elo})
-            result = self._engine.play(board, chess.engine.Limit(time=self._play_time))
-
+        if result.resigned:
+            game_state.resign()
+        elif result.draw_offered:
+            game_state.draw()
+        elif result.move is not None:       
+            game_state.register_move(result.move)
         else:
-            self._engine.configure({"Skill Level": self._skill})
-            result = self._engine.play(board, chess.engine.Limit(time=self._play_time))
-        
-        if result.move is None:
-            return None
-        
-        return board.san(result.move)
+            raise Exception("Stockfish played invalid move in state:\n" + game_state.state)
 
     def get_config(self) -> dict:
-        return {"skill_level": self._skill_level, "Elo": self._elo, "play_time": self._play_time}
+        return {"play_time": self._play_time}
 
     def close(self):
         self._engine.quit()
 
-# Define base Player class
-class BatchPlayer:
-    def get_moves(self, board: chess.Board, game_state: str, temperature: float, **kwargs) -> str:
-        raise NotImplementedError
-
-    def get_config(self) -> dict:
-        raise NotImplementedError
-
 # TODO: Implement Distributed Inference
-class GPTPlayer(Player):
-    def __init__(self, ckpt_path, device = ""):
+class GPTPlayer(object):
+    def __init__(self, ckpt_path, device = "", rank = 0, topk = 5, temp = 1):
         self.ckpt_path = ckpt_path
         self.device = device
 
@@ -79,26 +58,27 @@ class GPTPlayer(Player):
             if k.startswith(unwanted_prefix):
                 state_dict[k[len(unwanted_prefix):]] = state_dict.pop(k)
         self.model.load_state_dict(state_dict)
-
+        
+        self.model = DDP(self.model, device_ids=[rank])
         self.model.eval()
 
         self.tokenizer, self.detokenizer = load_tokenizer()
 
-        self.k = 5
-        self.max_new_tokens = 5
+        self.k = topk
+        self.temperature = temp
+        self.max_move_size = 5
 
     def get_moves(
-        self, board: chess.Board, games: List[str], temperature: float
+        self, games: List[GameState]
     ) -> Optional[str]:
-        games = torch.tensor(
+        games = list(
             map(
-                lambda game: self.tokenizer({"gm_cntnts": game}, "gm_cntnts"), 
+                lambda game: torch.tensor(self.tokenizer({"state": game.state}, "state"), device = self.device),
                 games
-            ), 
-            device = self.device
+            )
         )
 
-        idx_moves = self.model.generate(games, max_new_tokens = self.max_new_tokens, temperature = temperature, top_k = self.k)[:, -self.max_new_tokens:]
+        idx_moves = self.model.generate_moves(games, max_move_size = self.max_move_size, temperature = self.temp, top_k = self.k)
         str_moves = self.detokenizer(idx_moves)
         
         return [move.split()[0] for move in str_moves]

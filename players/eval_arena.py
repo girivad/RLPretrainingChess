@@ -1,40 +1,11 @@
-import argparse, chess, torch, os, random
+import argparse, os
 from torch.distributed import init_process_group, destroy_process_group
 from players import GPTPlayer, StockfishPlayer
 from math import ceil
+from game_utils import GameState
 
 backend = 'nccl'
 stream_size = 1024 ** 3
-init_elo = 1250
-
-class GameState(object):
-    def __init__(self, game_id):
-        self.game_id = game_id
-        self.board = chess.Board()
-        self.state = ";"
-        self.outcome = ""
-        self.sf_rating = random.randint(1360, 2840)
-        self.turn = random.randint(0, 1)
-        self.w_player_id = self.turn
-    
-    def is_complete(self):
-        return self.outcome != ""
-
-    def write_outcome(self, pgn_file):
-        assert self.is_complete()
-
-        w_player, b_player = "GPTPlayer", "Stockfish-{}".format(self.sf_rating)
-        w_rating, b_rating = init_elo, self.sf_rating
-        if self.w_player_id != 0:
-            w_player, b_player = b_player, w_player
-            w_rating, b_rating = b_rating, w_rating
-
-        game = '''[White \"{} {}\"]\n[Black \"{} {}\"]\n[Result \"{}\"]\n{}'''.format(
-            w_player, w_rating, b_player, b_rating, self.outcome, self.outcome
-        )
-
-        pgn_file.write(game)
-    
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--eval_bsz", type = int, required = True)
@@ -50,7 +21,7 @@ ddp_local_rank = int(os.environ["LOCAL_RANK"])
 ddp_world_size = int(os.environ["WORLD_SIZE"])
 device = f"cuda:{ddp_local_rank}"
 
-gpt_player = GPTPlayer(args.ckpt, device)
+gpt_player = GPTPlayer(args.ckpt, device, ddp_local_rank)
 stockfish_player = StockfishPlayer(args.play_time)
 
 local_bsz = args.eval_bsz // ddp_world_size
@@ -80,6 +51,7 @@ while games_played < args.games:
         base_game_id += new_games
 
 local_pgn.close()
+stockfish_player.close()
 
 if ddp_local_rank != 0:
     destroy_process_group()
