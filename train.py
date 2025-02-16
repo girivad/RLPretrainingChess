@@ -211,7 +211,6 @@ if ddp:
 # helps estimate an arbitrarily accurate loss over either split using many batches
 @torch.no_grad()
 def estimate_loss():
-    return {"train": 0, "val": 0}
     out = {}
     model.eval()
     for split in ['train', 'val']:
@@ -291,6 +290,7 @@ while True:
 
     # forward backward update, with optional gradient accumulation to simulate larger batch size
     # and using the GradScaler if data type is float16
+    loss_dict = dict()
     for micro_step in range(gradient_accumulation_steps):
         if ddp:
             # in DDP training we only need to sync gradients at the last micro step.
@@ -299,7 +299,7 @@ while True:
             # looking at the source of that context manager, it just toggles this variable
             model.require_backward_grad_sync = (micro_step == gradient_accumulation_steps - 1)
         with ctx:
-            logits, loss = model(X, Y)
+            logits, loss, micro_loss_dict = model(X, Y)
             assert not torch.any(torch.isnan(loss))
             loss = loss / gradient_accumulation_steps # scale the loss to account for gradient accumulation
             assert not torch.any(torch.isnan(loss))
@@ -336,12 +336,12 @@ while True:
             running_mfu = mfu if running_mfu == -1.0 else 0.9*running_mfu + 0.1*mfu
         print(f"iter {iter_num}: loss {lossf:.4f}, time {dt*1000:.2f}ms, mfu {running_mfu*100:.2f}%")
         if wandb_log:
-            wandb.log({
+            wandb.log(dict(**{
                 "iter": iter_num,
                 "train/loss": lossf,
                 "lr": lr,
                 "mfu": running_mfu*100, # convert to percentage
-            })
+            }, **micro_loss_dict))
     iter_num += 1
     local_iter_num += 1
 

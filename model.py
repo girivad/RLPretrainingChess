@@ -17,6 +17,8 @@ from torch.nn import functional as F
 from torch.nn.attention.bias import causal_lower_right, causal_upper_left
 from torch import logsumexp
 
+from typing import List
+
 class LayerNorm(nn.Module):
     """ LayerNorm but with an optional bias. PyTorch doesn't support simply bias=False """
 
@@ -249,12 +251,14 @@ class GPT(nn.Module):
         x = self.seer.fusion(x)
         return self.seer.ln_f(x)
 
-    def forward(self, idx, targets=None, evaluate = False, lamda = 0.3):
+    def forward(self, idx, targets=None, evaluate = False):
         inference = targets is None
         device = idx.device
         b, t = idx.size()
         assert t <= self.config.block_size, f"Cannot forward sequence of length {t}, block size is only {self.config.block_size}"
         pos = torch.arange(0, t, dtype=torch.long, device=device) # shape (t)
+
+        loss_dict = dict()
 
         # forward the GPT model itself
         tok_emb = self.transformer.wte(idx) # token embeddings of shape (b, t, n_embd)
@@ -273,6 +277,7 @@ class GPT(nn.Module):
         # if we are given some desired targets also calculate the loss
         st_logits = self.lm_head(x) # Tokens 2:ctx_len + 1
         loss = ce_loss(st_logits, targets)
+        loss_dict["st_ce"] = loss.item()
 
         assert not torch.any(torch.isnan(loss))
 
@@ -283,18 +288,26 @@ class GPT(nn.Module):
         if self.seer is not None:
             h = self.seer_forward(emb, device = device)
             se_logits = self.lm_head(h) # 1 : ctx_len
-            loss = self.config.lamda * loss + (1 - self.config.lamda) * kd_loss(st_logits[:, :-1], se_logits[:, 1:]) # The seer only predicts tokens within context window.
+            kld = kd_loss(st_logits[:, :-1], se_logits[:, 1:])
+            loss_dict["kld"] = kld.item()
+            loss = self.config.lamda * loss + (1 - self.config.lamda) * kld # The seer only predicts tokens within context window.
             assert not torch.any(torch.isnan(loss))
-            loss = loss + ce_loss(se_logits, idx) # No right-shifting needed.
+            se_ce = ce_loss(se_logits, idx)
+            loss_dict["se_ce"] = se_ce.item()
+            loss = loss + se_ce # No right-shifting needed.
             assert not torch.any(torch.isnan(loss))
         
-        loss = loss + z_loss(st_logits)
+        st_z = z_loss(st_logits)
+        loss_dict["st_z"] = st_z.item()
+        loss = loss + st_z
         assert not torch.any(torch.isnan(loss))
         if self.seer is not None:
-            loss = loss + z_loss(se_logits)
+            se_z = z_loss(se_logits)
+            loss_dict["se_z"] = se_z.item()
+            loss = loss + se_z
         assert not torch.any(torch.isnan(loss))
 
-        return st_logits, loss
+        return st_logits, loss, loss_dict
 
     def crop_block_size(self, block_size):
         # model surgery to decrease the block size if necessary
