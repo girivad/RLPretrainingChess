@@ -21,6 +21,8 @@ import time
 import math
 import pickle
 from contextlib import nullcontext
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import numpy as np
 import torch
@@ -241,7 +243,8 @@ def get_lr(it):
 # logging
 if wandb_log and master_process:
     import wandb
-    wandb.init(project=wandb_project, name=wandb_run_name, config=config)
+    timestamp = datetime.now(ZoneInfo("America/Los_Angeles"))
+    wandb.init(project=wandb_project, name=wandb_run_name + str(timestamp), config=config)
 
 # training loop
 X, Y = get_batch('train') # fetch the very first batch
