@@ -17,7 +17,8 @@ from torch.nn import functional as F
 from torch.nn.attention.bias import causal_lower_right, causal_upper_left
 from torch import logsumexp
 
-from typing import List
+SPACE_TOKEN = 0
+EOS_TOKEN = 15
 
 class LayerNorm(nn.Module):
     """ LayerNorm but with an optional bias. PyTorch doesn't support simply bias=False """
@@ -461,7 +462,7 @@ class GPT(nn.Module):
         """
         Take a list of tokenized games. Autoregressively predict the next move with up to max_move_size tokens for each game, and output as token ids.
         """
-        min_prompt_len = min((len(game) for game in games))
+        min_prompt_len = min((len(game) for game in games)) - 1
         max_prompt_len = max((len(game) for game in games))
         max_token = max_prompt_len + max_move_size
         games_tensor = torch.tensor(
@@ -470,10 +471,16 @@ class GPT(nn.Module):
             ]
         )
         mv_msk = games_tensor == -1
+        sp_msk = games_tensor == SPACE_TOKEN
 
         for token in range(min_prompt_len, max_token):
             next_tokens = self.generate_token(games_tensor[:, :token], temperature = temperature, top_k = top_k)
             # Store next tokens if it is writing into an allotted move slot (within the max_move_size)
-            games_tensor[:, token] = torch.where(mv_msk[:, token], next_tokens, games_tensor[:, token])
+            # Can only overwrite a space if terminating the game (i.e. resigning).
+            games_tensor[:, token] = torch.where(
+                mv_msk[:, token] | (sp_msk[:, token] & next_tokens == EOS_TOKEN), 
+                next_tokens, 
+                games_tensor[:, token]
+            )
         
         return [list(games_tensor[s, mv_msk[s]]) for s in range(games_tensor.size(0))]
