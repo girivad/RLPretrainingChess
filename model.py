@@ -16,6 +16,7 @@ import torch.nn as nn
 from torch.nn import functional as F
 from torch.nn.attention.bias import causal_lower_right, causal_upper_left
 from torch import logsumexp
+from torch.distributions import Categorical
 
 SPACE_TOKEN = 0
 EOS_TOKEN = 15
@@ -141,7 +142,8 @@ def kd_loss(st_logits, se_logits):
             se_probs
         )
     )
-    return -1 * kld / (b * t)
+    se_entropy = torch.mean(Categorical(probs = smooth(se_probs)).entropy()).item()
+    return -1 * kld / (b * t), se_entropy
 
 def z_loss(logits):
     return 1e-4 * (logsumexp(logits, dim = -1) ** 2).sum()
@@ -291,7 +293,8 @@ class GPT(nn.Module):
         if self.seer is not None:
             h = self.seer_forward(emb, device = device)
             se_logits = self.lm_head(h) # 1 : ctx_len
-            kld = kd_loss(st_logits[:, :-1], se_logits[:, 1:])
+            kld, se_entropy = kd_loss(st_logits[:, :-1], se_logits[:, 1:])
+            loss_dict["seer entropy"] = se_entropy
             loss_dict["kld"] = kld.item()
             loss = self.config.lamda * loss + (1 - self.config.lamda) * kld # The seer only predicts tokens within context window.
             assert not torch.any(torch.isnan(loss))
