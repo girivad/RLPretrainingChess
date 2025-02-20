@@ -36,6 +36,8 @@ def pack(ds, blk_size = 1024):
 parser = argparse.ArgumentParser()
 parser.add_argument("--dataset", type = str, required = True)
 parser.add_argument("--out_dir", default = os.path.dirname(__file__), type = str)
+parser.add_argument("--hf_tokenizer", type = bool, default = False)
+parser.add_argument("--tokenizer_dir", type = str, default = "./data/lichess_hf_dataset")
 args = parser.parse_args()
 
 if __name__ == "__main__":
@@ -66,7 +68,7 @@ if __name__ == "__main__":
     # })
 
     # we now want to tokenize the dataset. Using meta.pkl in the same directory as this file
-    tokenizer, _ = load_tokenizer(dtype = dtype)
+    tokenizer, _ = load_tokenizer(args.hf_tokenizer, args.tokenizer_dir, dtype = dtype)
 
     # to read the bin files later, e.g. with numpy:
     # m = np.memmap('train.bin', dtype=np.uint8, mode='r')
