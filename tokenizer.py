@@ -3,13 +3,14 @@ import numpy as np
 import torch
 from transformers import AutoTokenizer
 
-def char_tokenize(example, column_name, stoi, dtype):
-        contents = example[column_name]
-        contents = re.sub(
+def preproc_game(contents):
+    return re.sub(
             r"[0-9]+[\.]+",
             "",
             contents
         )
+
+def char_tokenize(contents, stoi, dtype):
         return np.array(
             [
                 stoi[c] for c in contents
@@ -34,12 +35,12 @@ def load_tokenizer(hf_tokenizer, tokenizer_dir = "./data/lichess_hf_dataset", dt
             meta = pickle.load(f)
         stoi, itos = meta["stoi"], meta["itos"]
         
-        tokenize = lambda ex, col: char_tokenize(ex, col, stoi, dtype)
+        tokenize = lambda ex, col: char_tokenize(preproc_game(ex[col]), stoi, dtype)
         detokenize = lambda idx: char_detokenize(idx, itos)
 
     else:
         tokenizer = AutoTokenizer.from_pretrained(tokenizer_dir, local_files_only = True)
-        tokenize = lambda ex, col: tokenizer(ex[col], return_tensors = 'np')["input_ids"].astype(dtype)
+        tokenize = lambda ex, col: tokenizer(preproc_game(ex[col]), return_tensors = 'np')["input_ids"].astype(dtype)
         detokenize = lambda idx: tokenizer.batch_decode(idx)
 
     return tokenize, detokenize
