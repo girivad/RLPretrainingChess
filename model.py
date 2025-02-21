@@ -18,6 +18,8 @@ from torch.nn.attention.bias import causal_lower_right, causal_upper_left
 from torch import logsumexp
 from torch.distributions import Categorical
 
+from utils import smooth
+
 SPACE_TOKEN = 0
 EOS_TOKEN = 15
 
@@ -122,12 +124,6 @@ class GPTConfig:
     bias: bool = True # True: bias in Linears and LayerNorms, like GPT-2. False: a bit better and faster
     n_slayer: int = 0
     lamda: float = 0.5
-
-alpha = 0.01
-def smooth(probs):
-    # probs: B x S x V
-    V = probs.size(-1)
-    return (probs + alpha) / (1 + V * alpha)
 
 def ce_loss(logits, targets):
     return F.cross_entropy(logits.view(-1, logits.size(-1)), targets.reshape(-1), ignore_index=-1)
