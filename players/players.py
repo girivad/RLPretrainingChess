@@ -66,12 +66,16 @@ class GPTPlayer(object):
         self.k = topk
         self.temperature = temp
         self.max_move_size = 5
+        self.char = not hf_tokenizer
 
     def play_moves(
         self, games: List[GameState]
     ):
         games = [torch.tensor(self.tokenizer({"state": game.state}, "state"), device = self.device) for game in games]
-        idx_moves = self.model.generate_moves(games, max_move_size = self.max_move_size, temperature = self.temp, top_k = self.k)
+        if self.char:
+            idx_moves = self.model.generate_moves(games, max_move_size = self.max_move_size, temperature = self.temp, top_k = self.k)
+        else:
+            idx_moves = self.model.generate_token(games, temperature = self.temp, top_k = self.k)  # TODO: Switch out for 1-token move generation.
         str_moves = self.detokenizer(idx_moves)
         moves = [move.split()[0] for move in str_moves]
 
