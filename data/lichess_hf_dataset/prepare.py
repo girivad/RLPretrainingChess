@@ -13,14 +13,15 @@ from tokenizer import load_tokenizer
 # number of workers in .map() call
 # good number to use is ~order number of cpu cores // 2
 num_proc = 8
-dtype = np.uint8  # Currently there are only 32 tokens in the chess LLMs vocab
+c_dtype = np.uint8  # Currently there are only 32 tokens in the chess LLMs vocab
+t_dtype = np.uint16
 
 # number of workers in load_dataset() call
 # best number might be different from num_proc above as it also depends on NW speed.
 # it is better than 1 usually though
 num_proc_load_dataset = num_proc
 
-def pack(ds, blk_size = 1024):
+def pack(ds, blk_size = 1024, dtype = c_dtype):
     blk = []
 
     for ex in ds:
@@ -44,6 +45,7 @@ if __name__ == "__main__":
 
     dataset_path = "adamkarvonen/chess_games"
     file_path = args.dataset
+    dtype = t_dtype if args.hf_tokenizer else c_dtype
 
     # Load the dataset
     dataset = load_dataset(dataset_path, data_files = file_path, split = "train")
@@ -68,7 +70,7 @@ if __name__ == "__main__":
     # })
 
     # we now want to tokenize the dataset. Using meta.pkl in the same directory as this file
-    tokenizer, _ = load_tokenizer(args.hf_tokenizer, args.tokenizer_dir, dtype = dtype)
+    tokenizer, _ = load_tokenizer(args.hf_tokenizer, args.tokenizer_dir)
 
     # to read the bin files later, e.g. with numpy:
     # m = np.memmap('train.bin', dtype=np.uint8, mode='r')

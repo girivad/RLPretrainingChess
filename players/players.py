@@ -35,7 +35,7 @@ class StockfishPlayer(object):
         self._engine.quit()
 
 class GPTPlayer(object):
-    def __init__(self, ckpt_path, device = "", rank = 0, topk = 29, temp = 1):
+    def __init__(self, ckpt_path, device = "", rank = 0, hf_tokenizer = False, tokenizer_dir = "./data/lichess_hf_dataset", topk = 29, temp = 1):
         self.ckpt_path = ckpt_path
         self.device = device
 
@@ -61,7 +61,7 @@ class GPTPlayer(object):
         self.model = DDP(self.model, device_ids=[rank])
         self.model.eval()
 
-        self.tokenizer, self.detokenizer = load_tokenizer()
+        self.tokenizer, self.detokenizer = load_tokenizer(hf_tokenizer, tokenizer_dir)
 
         self.k = topk
         self.temperature = temp

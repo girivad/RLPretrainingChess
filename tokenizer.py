@@ -28,8 +28,9 @@ def char_detokenize(idx, itos):
         "".join(itos[idx[i][j]] for j in range(len(idx[i]))) for i in range(len(idx))
     ]
 
-def load_tokenizer(hf_tokenizer, tokenizer_dir = "./data/lichess_hf_dataset", dtype = np.uint8):
+def load_tokenizer(hf_tokenizer, tokenizer_dir = "./data/lichess_hf_dataset"):
     if not hf_tokenizer:
+        dtype = np.uint8
         meta_path = os.path.join(tokenizer_dir, "meta.pkl")
         with open(meta_path, "rb") as f:
             meta = pickle.load(f)
@@ -39,8 +40,9 @@ def load_tokenizer(hf_tokenizer, tokenizer_dir = "./data/lichess_hf_dataset", dt
         detokenize = lambda idx: char_detokenize(idx, itos)
 
     else:
+        dtype = np.uint16
         tokenizer = AutoTokenizer.from_pretrained(tokenizer_dir, local_files_only = True)
-        tokenize = lambda ex, col: tokenizer(preproc_game(ex[col]), return_tensors = 'np')["input_ids"].astype(dtype)
+        tokenize = lambda ex, col: tokenizer(preproc_game(ex[col]), return_tensors = 'np')["input_ids"][0].astype(dtype)
         detokenize = lambda idx: tokenizer.batch_decode(idx)
 
     return tokenize, detokenize
