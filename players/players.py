@@ -28,6 +28,12 @@ class StockfishPlayer(object):
         else:
             raise Exception("Stockfish played invalid move in state:\n" + game_state.state)
 
+    def play(
+        self, games_states: List[GameState]
+    ):
+        for game_state in games_states:
+            self.play_move(game_state)
+
     def get_config(self) -> dict:
         return {"play_time": self._play_time}
 
@@ -85,5 +91,13 @@ class GPTPlayer(object):
             else:
                 game_state.register_move(move, parse_move = True)
 
+    def play(
+        self, games_states: List[GameState]
+    ):
+        self.play_moves(games_states)
+
     def get_config(self) -> dict:
         return {"ckpt": self.ckpt_path, "topk": self.k}
+    
+    def close(self):
+        pass
