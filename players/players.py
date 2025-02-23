@@ -55,7 +55,7 @@ class GPTPlayer(object):
     def play_moves(
         self, game_states: List[GameState]
     ):
-        games = [torch.tensor(self.tokenizer({"state": game.state}, "state"), device = self.device) for game in game_states]
+        games = [torch.tensor(self.tokenizer(game.state), device = self.device) for game in game_states]
 
         # Decide games beyond context length
         red_game_states, red_games = []

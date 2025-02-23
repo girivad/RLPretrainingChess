@@ -136,8 +136,13 @@ def update_gpr(g, G, p, P, r, R, tokenize):
     g = sum(g, [])
     
     S = G.size(-1) if G is not None else len(g)
-    g = g + [0] * (S - len(p)) # Random Token 0, will be dropped in Loss calculation as P is also 0.
-    p = p + [0] * (S - len(p))
+    if S > len(g) or G is None:
+        g = g + [0] * (S - len(p)) # Random Token 0, will be dropped in Loss calculation as P is also 0.
+        p = p + [0] * (S - len(p))
+    else:
+        G = torch.concat([G, torch.zeros((G.size(0), S - G.size(-1)))], dim = 1)
+        P = torch.concat([P, torch.zeros((P.size(0), S - P.size(-1)))], dim = 1)
+
     g = torch.tensor(g).view(1, -1)
     p = torch.tensor(p).view(1, -1)
 

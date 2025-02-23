@@ -28,6 +28,14 @@ def char_detokenize(idx, itos):
         "".join(itos[idx[i][j]] for j in range(len(idx[i]))) for i in range(len(idx))
     ]
 
+def hf_tokenize(tokenizer, ex, dtype, batch = False):
+    ids = tokenizer(ex, return_type = "np")["input_ids"]
+
+    if batch:
+        return [id.astype(np.uint8) for id in ids]
+    
+    return ids[0].astype(dtype)
+
 def load_tokenizer(hf_tokenizer, tokenizer_dir = "./data/lichess_hf_dataset"):
     if not hf_tokenizer:
         dtype = np.uint8
@@ -36,13 +44,13 @@ def load_tokenizer(hf_tokenizer, tokenizer_dir = "./data/lichess_hf_dataset"):
             meta = pickle.load(f)
         stoi, itos = meta["stoi"], meta["itos"]
         
-        tokenize = lambda ex, col: char_tokenize(preproc_game(ex[col]), stoi, dtype)
+        tokenize = lambda ex, batch = False: char_tokenize(preproc_game(ex), stoi, dtype) if not batch else [char_tokenize(x, stoi, dtype) for x in preproc_game(ex)]
         detokenize = lambda idx: char_detokenize(idx, itos)
 
     else:
         dtype = np.uint16
         tokenizer = AutoTokenizer.from_pretrained(tokenizer_dir, local_files_only = True)
-        tokenize = lambda ex, col: tokenizer(preproc_game(ex[col]), return_tensors = 'np')["input_ids"][0].astype(dtype)
+        tokenize = lambda ex, batch = False: hf_tokenize(tokenizer, ex, dtype, batch = batch)
         detokenize = lambda idx: tokenizer.batch_decode(idx)
 
     return tokenize, detokenize

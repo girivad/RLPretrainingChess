@@ -88,7 +88,7 @@ if __name__ == "__main__":
     column_name = "transcript"
 
     def process(example):
-        ids = tokenizer(example, column_name)
+        ids = tokenizer(example[column_name])
         out = {"ids": ids, "len": len(ids)}
         return out
 
