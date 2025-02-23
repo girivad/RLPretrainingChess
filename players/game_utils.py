@@ -13,8 +13,8 @@ class GameState(object):
         
         self.board = chess.Board()
         self.state = ";"
-        self.G = []
-        self.P = []
+        self.G = [";"]
+        self.P = [0]
         self.turn = random.randint(0, 1)
         self.w_player_id = self.turn
         
@@ -94,7 +94,7 @@ class GameState(object):
         self.G.append(move + " ")
         player_type = (-1 ** (1 * (self.turn != self.w_player_id))) if "GPT" in self.players[self.turn] else 0
         self.P.append(player_type)
-        assert len(self.G) == len(self.P)
+        assert len(self.G) - 1 == len(self.P)
         
         # if len(self.state) >= 1015: # TODO: Verify that player-level context length monitoring is sufficient
         #     self.decide()

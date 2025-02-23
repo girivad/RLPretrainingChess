@@ -31,6 +31,7 @@ from torch.distributed import init_process_group, destroy_process_group
 
 from model import GPTConfig, GPT
 from utils import smooth
+from players.game_utils import sample_games, estimate_elo
 
 # -----------------------------------------------------------------------------
 # default config values designed to train a gpt2 (124M) on OpenWebText
@@ -179,22 +180,6 @@ if ddp:
     pi_theta = DDP(pi_theta, device_ids=[ddp_local_rank])
     pi_ref = DDP(pi_ref, device_ids=[ddp_local_rank])
 
-# # helps estimate an arbitrarily accurate loss over either split using many batches
-# @torch.no_grad()
-# def estimate_loss():
-#     out = {}
-#     model.eval()
-#     for split in ['train', 'val']:
-#         losses = torch.zeros(eval_iters)
-#         for k in range(eval_iters):
-#             X, Y = get_batch(split)
-#             with ctx:
-#                 logits, loss = model(X, Y, evaluate = True)
-#             losses[k] = loss.item()
-#         out[split] = losses.mean()
-#     model.train()
-#     return out
-
 # logging
 if wandb_log and master_process:
     import wandb
@@ -212,9 +197,11 @@ pi_ref.eval()
 
 while True:
     # G: Indices of moves played in simulated games; B x S
-    # P: Player Name/Type, excludes start token, -1 for black GPT Player, +1 for white GPT Player, 0 for Stockfish Player; B x (S - 1)
+    # P: Player Name/Type, -1 for black GPT Player, +1 for white GPT Player, 0 for Stockfish Player/Padding Tokens; B x S
     # R: Game Rewards, reward is -1 for black victory, +1 for white victory, 0 for draw; B x 0.
-    G, P, R = sample_games(pi_theta, bsz = batch_size, self_play = False)
+    with torch.no_grad():
+        G, P, R = sample_games(pi_theta, batch_size, batch_size, ddp_local_rank, hf_tokenizer = hf_tokenizer, tokenizer_dir = tokenizer_dir, self_play = False)
+        P = P[:, 1:] # B x (S - 1)
 
     # determine and set the learning rate for this iteration
     lr = learning_rate
@@ -223,7 +210,8 @@ while True:
 
     # evaluate the loss on train/val sets and write checkpoints
     if iter_num % eval_interval == 0 and master_process:
-        elo = estimate_elo(pi_theta, bsz = batch_size, eval_games = eval_iters)
+        with torch.no_grad():
+            elo = estimate_elo(pi_theta, batch_size, eval_iters, ddp_local_rank, f"./pgn/{iter_num}", hf_tokenizer = hf_tokenizer, tokenizer_dir = tokenizer_dir, world_size = ddp_world_size)
         print(f"step {iter_num}: Elo rating {elo:.4f}")
         if wandb_log:
             wandb.log({
@@ -261,13 +249,12 @@ while True:
             # looking at the source of that context manager, it just toggles this variable
             pi_theta.require_backward_grad_sync = (micro_step == gradient_accumulation_steps - 1)
         with ctx:
-            # logits, loss, micro_loss_dict = model(X, Y)
-            pi_t = smooth(pi_theta(G)[:, :-1]) # B x (S - 1) x V
+            pi_t = smooth(pi_theta(G[:, :-1])) # B x (S - 1) x V
             # Index Select Workaround: https://github.com/pytorch/pytorch/issues/30574
             pi_t_prbs = torch.gather(pi_t, 2, G[:, 1:].unsqueeze(2)).squeeze(2) # B x (S - 1)
 
             with torch.no_grad():
-                pi_r = smooth(pi_ref(G)[:, :-1])
+                pi_r = smooth(pi_ref(G[:, :-1]))
                 pi_r_prbs = torch.gather(pi_r, 2, G[:, 1:].unsqueeze(2)).squeeze(2) # B x (S - 1)
             
             prb_ratio = pi_t_prbs / pi_t_prbs.detach().clone() # B x (S - 1)
@@ -276,7 +263,7 @@ while True:
             loss = torch.mean(
                 torch.sum(
                     torch.where(prb_ratio < clipped_ratio, prb_ratio, clipped_ratio) * P * R.view(-1, 1) - 
-                    beta * (pi_r_prbs / pi_t_prbs - torch.log(pi_r_prbs) + torch.log(pi_t_prbs) - 1),
+                    beta * (pi_r_prbs / pi_t_prbs - torch.log(pi_r_prbs) + torch.log(pi_t_prbs) - 1) * (P != 0),
                     dim = 1
                 ) / (P != 0).sum(dim = 1)
             )
