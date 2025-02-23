@@ -31,7 +31,7 @@ from torch.distributed import init_process_group, destroy_process_group
 
 from model import GPTConfig, GPT
 from utils import smooth
-from players.game_utils import sample_games, estimate_elo
+from players.arena import sample_games, estimate_elo
 
 # -----------------------------------------------------------------------------
 # default config values designed to train a gpt2 (124M) on OpenWebText
@@ -53,6 +53,9 @@ dataset = 'openwebtext'
 gradient_accumulation_steps = 5 * 8 # used to simulate larger batch sizes
 batch_size = 12 # if gradient_accumulation_steps > 1, this is the micro-batch size
 block_size = 1024
+# tokenizer
+hf_tokenizer = False
+tokenizer_dir = "./data/lichess_hf_dataset"
 # model
 n_slayer = 0
 n_layer = 12

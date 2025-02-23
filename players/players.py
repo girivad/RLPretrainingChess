@@ -1,9 +1,8 @@
 import chess, torch
-from model import GPT, GPTConfig
-from typing import Optional, List
+from model import GPT
+from typing import List
 from tokenizer import load_tokenizer
-from torch.nn.parallel import DistributedDataParallel as DDP
-from game_utils import GameState
+from players.game_utils import GameState
 
 # Adapted from https://github.com/adamkarvonen/chess_gpt_eval/blob/master/main.py
 
