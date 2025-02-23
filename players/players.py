@@ -41,55 +41,42 @@ class StockfishPlayer(object):
         self._engine.quit()
 
 class GPTPlayer(object):
-    def __init__(self, ckpt_path, device = "", rank = 0, hf_tokenizer = False, tokenizer_dir = "./data/lichess_hf_dataset", topk = 29, temp = 1):
-        self.ckpt_path = ckpt_path
-        self.device = device
-
-        checkpoint = torch.load(ckpt_path, map_location=self.device)
-        checkpoint_model_args = checkpoint['model_args']
-        model_args = dict()
-        for k in ['n_layer', 'n_head', 'n_embd', 'block_size', 'bias', 'vocab_size']: # No need for Seer Parameters
-            model_args[k] = checkpoint_model_args[k]
-
-        # create the model
-        gptconf = GPTConfig(**model_args)
-        self.model = GPT(gptconf)
-
-        state_dict = checkpoint['model']
-        # fix the keys of the state dictionary :(
-        # honestly no idea how checkpoints sometimes get this prefix, have to debug more
-        unwanted_prefix = '_orig_mod.'
-        for k,v in list(state_dict.items()):
-            if k.startswith(unwanted_prefix):
-                state_dict[k[len(unwanted_prefix):]] = state_dict.pop(k)
-        self.model.load_state_dict(state_dict)
-        self.model = torch.compile(self.model)
-        self.model = DDP(self.model, device_ids=[rank])
+    def __init__(self, model: GPT, max_move_size = 5, hf_tokenizer = False, tokenizer_dir = "./data/lichess_hf_dataset", topk = None, temp = 1):
+        self.model = model
         self.model.eval()
 
         self.tokenizer, self.detokenizer = load_tokenizer(hf_tokenizer, tokenizer_dir)
 
         self.k = topk
         self.temperature = temp
-        self.max_move_size = 5
+        self.max_move_size = max_move_size
         self.char = not hf_tokenizer
 
     def play_moves(
-        self, games: List[GameState]
+        self, game_states: List[GameState]
     ):
-        games = [torch.tensor(self.tokenizer({"state": game.state}, "state"), device = self.device) for game in games]
-        if self.char:
-            idx_moves = self.model.generate_moves(games, max_move_size = self.max_move_size, temperature = self.temp, top_k = self.k)
-        else:
-            idx_moves = self.model.generate_token(games, temperature = self.temp, top_k = self.k)  # TODO: Switch out for 1-token move generation.
+        games = [torch.tensor(self.tokenizer({"state": game.state}, "state"), device = self.device) for game in game_states]
+
+        # Decide games beyond context length
+        red_game_states, red_games = []
+        for game_state, game in zip(game_states, games):
+            if game.size(0) > self.model.config.block_size:
+                game_state.decide()
+            else:
+                red_game_states.append(game_state)
+                red_games.append(game)
+        game_states = red_game_states
+        games = red_games            
+
+        idx_moves = self.model.generate_moves(games, max_move_size = self.max_move_size, overwrite_spaces = self.char, temperature = self.temperature, top_k = self.k)
         str_moves = self.detokenizer(idx_moves)
         moves = [move.split()[0] for move in str_moves]
 
-        for game_state, move in zip(games, moves):
+        for game_state, move in zip(game_states, moves):
             if ";" in move:
                 game_state.resign()
             else:
-                game_state.register_move(move, parse_move = True)
+                game_state.register_move(move, parse_move = "san" if self.char else "uci")
 
     def play(
         self, games_states: List[GameState]

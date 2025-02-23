@@ -146,7 +146,7 @@ def z_loss(logits):
 
 class GPT(nn.Module):
 
-    def __init__(self, config):
+    def __init__(self, config: GPTConfig):
         super().__init__()
         assert config.vocab_size is not None
         assert config.block_size is not None
@@ -457,7 +457,7 @@ class GPT(nn.Module):
         return idx
     
     @torch.no_grad()
-    def generate_moves(self, games, max_move_size = 5, temperature = 1.0, top_k = None):
+    def generate_moves(self, games, max_move_size = 5, overwrite_spaces = True, temperature = 1.0, top_k = None):
         """
         Take a list of tokenized games. Autoregressively predict the next move with up to max_move_size tokens for each game, and output as token ids.
         """
@@ -477,7 +477,7 @@ class GPT(nn.Module):
             # Store next tokens if it is writing into an allotted move slot (within the max_move_size)
             # Can only overwrite a space if terminating the game (i.e. resigning).
             games_tensor[:, token] = torch.where(
-                mv_msk[:, token] | (sp_msk[:, token] & next_tokens == EOS_TOKEN), 
+                mv_msk[:, token] | (overwrite_spaces & sp_msk[:, token] & next_tokens == EOS_TOKEN), 
                 next_tokens, 
                 games_tensor[:, token]
             )
