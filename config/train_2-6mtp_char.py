@@ -6,7 +6,7 @@ model_dir = "../../model_vol"
 data_dir = "../../model_vol/data_dir/pretrain"
 
 timestamp = datetime.now(ZoneInfo("America/Los_Angeles"))
-run_name = "2-6layer_mtp_lichess " + timestamp
+run_name = "2-6layer_mtp_lichess " + str(timestamp)
 
 out_dir = os.path.join(model_dir, run_name)
 eval_interval = 4000
