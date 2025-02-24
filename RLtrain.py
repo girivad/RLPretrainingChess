@@ -200,7 +200,7 @@ while True:
     # P: Player Name/Type, -1 for black GPT Player, +1 for white GPT Player, 0 for Stockfish Player/Padding Tokens; B x S
     # R: Game Rewards, reward is -1 for black victory, +1 for white victory, 0 for draw; B x 0.
     with torch.no_grad():
-        G, P, R = sample_games(pi_theta, batch_size, batch_size, ddp_local_rank, hf_tokenizer = hf_tokenizer, tokenizer_dir = tokenizer_dir, self_play = False)
+        G, P, R = sample_games(pi_theta, batch_size, batch_size, ddp_local_rank, hf_tokenizer = hf_tokenizer, tokenizer_dir = tokenizer_dir, self_play = False, sf_time = 0.1)
         P = P[:, 1:] # B x (S - 1)
 
     # determine and set the learning rate for this iteration
