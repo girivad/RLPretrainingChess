@@ -103,12 +103,12 @@ def collate_games(files: List[str], write_out: str):
     
     global_pgn.close()
 
-def sample_games(pi_theta, total_games, bsz, rank, hf_tokenizer = False, tokenizer_dir = "./data/lichess_hf_dataset", self_play = False, write_out = None):
+def sample_games(pi_theta, total_games, bsz, rank, hf_tokenizer = False, tokenizer_dir = "./data/lichess_hf_dataset", self_play = False, write_out = None, sf_time = 0.1):
     p0 = GPTPlayer(pi_theta, f"cuda:{rank}", max_move_size = (5 if not hf_tokenizer else 1), hf_tokenizer = hf_tokenizer, tokenizer_dir = tokenizer_dir)
     if self_play:
         p1 = GPTPlayer(pi_theta, f"cuda:{rank}", max_move_size = (5 if not hf_tokenizer else 1), hf_tokenizer = hf_tokenizer, tokenizer_dir = tokenizer_dir)
     else:
-        p1 = StockfishPlayer(0.01)
+        p1 = StockfishPlayer(sf_time)
 
     tokenize = None
     if write_out is None:
