@@ -1,4 +1,5 @@
 import chess, torch
+import chess.engine
 from model import GPT
 from typing import List
 from tokenizer import load_tokenizer
@@ -9,7 +10,7 @@ from players.game_utils import GameState
 class StockfishPlayer(object):
     def __init__(self, play_time: float):
         self._play_time = play_time
-        stockfish_path = "stockfish_exec"
+        stockfish_path = "./stockfish_exec"
         self._engine = chess.engine.SimpleEngine.popen_uci(stockfish_path)
 
     def play_move(
@@ -40,9 +41,11 @@ class StockfishPlayer(object):
         self._engine.quit()
 
 class GPTPlayer(object):
-    def __init__(self, model: GPT, max_move_size = 5, hf_tokenizer = False, tokenizer_dir = "./data/lichess_hf_dataset", topk = None, temp = 1):
+    def __init__(self, model: GPT, device, max_move_size = 5, hf_tokenizer = False, tokenizer_dir = "./data/lichess_hf_dataset", topk = None, temp = 1):
         self.model = model
         self.model.eval()
+
+        self.device = device
 
         self.tokenizer, self.detokenizer = load_tokenizer(hf_tokenizer, tokenizer_dir)
 
@@ -57,9 +60,9 @@ class GPTPlayer(object):
         games = [torch.tensor(self.tokenizer(game.state), device = self.device) for game in game_states]
 
         # Decide games beyond context length
-        red_game_states, red_games = []
+        red_game_states, red_games = [], []
         for game_state, game in zip(game_states, games):
-            if game.size(0) > self.model.config.block_size:
+            if game.size(0) > self.model.module.config.block_size:
                 game_state.decide()
             else:
                 red_game_states.append(game_state)
@@ -67,7 +70,10 @@ class GPTPlayer(object):
         game_states = red_game_states
         games = red_games            
 
-        idx_moves = self.model.generate_moves(games, max_move_size = self.max_move_size, overwrite_spaces = self.char, temperature = self.temperature, top_k = self.k)
+        print("Game:", games[0].device)
+        print("Model:", self.model.module.device)
+
+        idx_moves = self.model.module.generate_moves(games, max_move_size = self.max_move_size, overwrite_spaces = self.char, temperature = self.temperature, top_k = self.k)
         str_moves = self.detokenizer(idx_moves)
         moves = [move.split()[0] for move in str_moves]
 

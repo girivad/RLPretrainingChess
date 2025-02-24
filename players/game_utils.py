@@ -25,7 +25,7 @@ class GameState(object):
         for player_idx in range(len(self.players)):
             if "Stockfish" not in self.players[player_idx]:
                 continue
-            self.players[player_idx] = "Stockfish-{}".format(self.sf_rating)
+            self.players[player_idx] = "Stockfish-{}".format(sf_rating)
             self.ratings[player_idx] = sf_rating
     
     def decide(self):

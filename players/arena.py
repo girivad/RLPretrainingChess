@@ -36,7 +36,7 @@ class Arena(object):
         self.local_rank = rank
 
         self.tokenize = tokenize
-        self.adjudicator = chess.engine.SimpleEngine.popen_uci("stockfish_exec")
+        self.adjudicator = chess.engine.SimpleEngine.popen_uci("./stockfish_exec")
     
     def run_games(self, total_games: int, write_out = None):
         if write_out:
@@ -104,9 +104,9 @@ def collate_games(files: List[str], write_out: str):
     global_pgn.close()
 
 def sample_games(pi_theta, total_games, bsz, rank, hf_tokenizer = False, tokenizer_dir = "./data/lichess_hf_dataset", self_play = False, write_out = None):
-    p0 = GPTPlayer(pi_theta, max_move_size = (5 if not hf_tokenizer else 1), hf_tokenizer = hf_tokenizer, tokenizer_dir = tokenizer_dir)
+    p0 = GPTPlayer(pi_theta, f"cuda:{rank}", max_move_size = (5 if not hf_tokenizer else 1), hf_tokenizer = hf_tokenizer, tokenizer_dir = tokenizer_dir)
     if self_play:
-        p1 = GPTPlayer(pi_theta, max_move_size = (5 if not hf_tokenizer else 1), hf_tokenizer = hf_tokenizer, tokenizer_dir = tokenizer_dir)
+        p1 = GPTPlayer(pi_theta, f"cuda:{rank}", max_move_size = (5 if not hf_tokenizer else 1), hf_tokenizer = hf_tokenizer, tokenizer_dir = tokenizer_dir)
     else:
         p1 = StockfishPlayer(0.01)
 
