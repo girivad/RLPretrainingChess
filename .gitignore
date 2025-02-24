@@ -9,4 +9,5 @@ __pycache__/
 *.pyc
 input.txt
 players/stockfish/
-players/stockfish-ubuntu-x86-64.tar
+stockfish_exec
+stockfish-ubuntu-x86-64.tar
