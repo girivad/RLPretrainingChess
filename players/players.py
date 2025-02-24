@@ -70,9 +70,6 @@ class GPTPlayer(object):
         game_states = red_game_states
         games = red_games            
 
-        print("Game:", games[0].device)
-        print("Model:", self.model.module.device)
-
         idx_moves = self.model.module.generate_moves(games, max_move_size = self.max_move_size, overwrite_spaces = self.char, temperature = self.temperature, top_k = self.k)
         str_moves = self.detokenizer(idx_moves)
         moves = [move.split()[0] for move in str_moves]
