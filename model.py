@@ -289,7 +289,7 @@ class GPT(nn.Module):
         if self.seer is not None:
             h = self.seer_forward(emb, device = device)
             se_logits = self.lm_head(h) # 1 : ctx_len
-            kld, se_entropy = kd_loss(st_logits[:, :-1], se_logits[:, 1:])
+            kld, se_entropy = kd_loss(st_logits[:, :-1], se_logits[:, 1:].detach().clone())
             loss_dict["seer entropy"] = se_entropy
             loss_dict["kld"] = kld.item()
             loss = self.config.lamda * loss + (1 - self.config.lamda) * kld # The seer only predicts tokens within context window.
