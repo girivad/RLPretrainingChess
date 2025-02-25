@@ -3,28 +3,44 @@ from typing import List
 from players.players import GPTPlayer, StockfishPlayer
 from players.game_utils import GameState
 from tokenizer import load_tokenizer
+from time import time
 
 STREAM_SIZE = 1024 ** 3
 
 def update_gpr(g, G, p, P, r, R, tokenize):
+    print("g:", g)
     g = tokenize(g, batch = True)
+    g = [list(g_s) for g_s in g] # TODO: g is a list of np arrays.
+    print("Tokenized:", g)
     p = sum([[ptype] * len(tokens) for ptype, tokens in zip(p, g)], [])
+    print("p:", p)
     g = sum(g, [])
+    print("g:", g)
     
-    S = G.size(-1) if G is not None else len(g)
+    S = max(G.size(-1), len(g)) if G is not None else len(g) # If initializing G, len of the new sequence. If adding to G, size of G.
+    print("S:", S)
     if S > len(g) or G is None:
         g = g + [0] * (S - len(p)) # Random Token 0, will be dropped in Loss calculation as P is also 0.
+        print("g:", g)
         p = p + [0] * (S - len(p))
-    else:
+        print("p:", p)
+    elif S > G.size(-1):
         G = torch.concat([G, torch.zeros((G.size(0), S - G.size(-1)))], dim = 1)
+        print("G:", G)
         P = torch.concat([P, torch.zeros((P.size(0), S - P.size(-1)))], dim = 1)
+        print("P:", P)
 
     g = torch.tensor(g).view(1, -1)
+    print("g:", g)
     p = torch.tensor(p).view(1, -1)
+    print("p:", p)
 
     G = g if G is None else torch.concat([G, g], dim = 0)
+    print("G:", G)
     P = p if P is None else torch.concat([P, p], dim = 0)
+    print("P:", P)
     R.append(r)
+    print("R:", R)
 
     return G, P, R
 
@@ -49,33 +65,52 @@ class Arena(object):
         game_states = [GameState(idx, self.adjudicator, [type(self.player0).__name__, type(self.player1).__name__]) for idx in range(self.eval_bsz)]
         base_game_id = self.eval_bsz
 
+        print("Player Types:", type(self.player0).__name__, type(self.player1).__name__)
+
+        move_num = 0
+
         while games_played < total_games:
             while len(game_states) > 0:
+                print("Move Number:", move_num)
+                move_num += 1
                 p0_games = [game_state for game_state in game_states if game_state.turn == 0]
                 p1_games = [game_state for game_state in game_states if game_state.turn == 1]
 
+                before = time()
                 self.player0.play(p0_games)
+                if self.local_rank == 0:
+                    print("P0 Plays in:", time() - before)
+                before = time()
                 self.player1.play(p1_games)
+                if self.local_rank == 0:
+                    print("P1 Plays in:", time() - before)
                 
                 reduced_game_states = []
                 for game_state in game_states:
                     if not game_state.is_complete():
+                        print("Game State Completed.")
                         reduced_game_states.append(game_state)
                         continue
                     if write_out is not None:
+                        print("Write Out:", write_out)
                         game_state.write_outcome(write_out)
                     else:
+                        print("get_gpr")
                         g, p, r = game_state.get_gpr()
-                        assert self.tokenize is not None
+                        print("got gpr")
                         G, P, R = update_gpr(g, G, p, P, r, R, self.tokenize)
+                        print("update gpr")
 
                     games_played += 1
-
+                print("Completed Game Evaluations")
                 game_states = reduced_game_states
                 new_games = min(self.eval_bsz - len(game_states), total_games - (games_played + len(game_states))) # Min(Bsz - reduced_games, total_games - (games_played + reduced_games))
+                print(type(base_game_id), type(new_games))
                 game_states += [GameState(base_game_id + game_id, self.adjudicator, [type(self.player0).__name__, type(self.player1).__name__]) for game_id in range(new_games)]
                 base_game_id += new_games
-
+                print("Games Played:", games_played)
+            print("Move Batch Terminated")
+        print("Total Games Completed")
         if write_out:
             write_out.close()
         else:
@@ -110,13 +145,19 @@ def sample_games(pi_theta, total_games, bsz, rank, hf_tokenizer = False, tokeniz
     else:
         p1 = StockfishPlayer(sf_time)
 
+    print("Players Created")
+
     tokenize = None
     if write_out is None:
         tokenize, _ = load_tokenizer(hf_tokenizer, tokenizer_dir)
 
+    print("Create Tokenizer")
+
     arena = Arena(p0, p1, bsz, rank, tokenize)
+    print("Create Arena")
     if write_out:
         arena.run_games(total_games, write_out)
+        print("Run Games")
     else:
         G, P, R = arena.run_games(total_games)
         return G, P, R

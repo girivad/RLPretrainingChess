@@ -457,23 +457,30 @@ class GPT(nn.Module):
         return idx
     
     @torch.no_grad()
-    def generate_moves(self, games, max_move_size = 5, overwrite_spaces = True, temperature = 1.0, top_k = None):
+    def generate_moves(self, games, device, max_move_size = 5, overwrite_spaces = True, temperature = 1.0, top_k = None):
         """
         Take a list of tokenized games. Autoregressively predict the next move with up to max_move_size tokens for each game, and output as token ids.
         """
-        min_prompt_len = min((len(game) for game in games)) - 1
+        main_process = (device == "cuda:0")
+
+        min_prompt_len = max(min((len(game) for game in games)) - 1, 1)
         max_prompt_len = max((len(game) for game in games))
         max_token = max_prompt_len + max_move_size
         games_tensor = torch.tensor(
             [
-                list(game) + [-1] * max_move_size + [-2] * (max_prompt_len - len(game) - max_move_size) for game in games
-            ]
+                list(game) + [-1] * max_move_size + [-2] * (max_token - len(game) - max_move_size) for game in games
+            ],
+            device = device
         )
+
+        print("Games Tensor Init Token:", games_tensor[:, 0])
+        print("First Move:", torch.all(games_tensor[:, 1:] < 0))
+
         mv_msk = games_tensor == -1
         sp_msk = games_tensor == SPACE_TOKEN
 
         for token in range(min_prompt_len, max_token):
-            next_tokens = self.generate_token(games_tensor[:, :token], temperature = temperature, top_k = top_k)
+            next_tokens = self.generate_token(games_tensor[:, :token], temperature = temperature, top_k = top_k).view(-1)
             # Store next tokens if it is writing into an allotted move slot (within the max_move_size)
             # Can only overwrite a space if terminating the game (i.e. resigning).
             games_tensor[:, token] = torch.where(
@@ -481,5 +488,7 @@ class GPT(nn.Module):
                 next_tokens, 
                 games_tensor[:, token]
             )
-        
-        return [list(games_tensor[s, mv_msk[s]]) for s in range(games_tensor.size(0))]
+        return [
+            [idx_tensor.item() for idx_tensor in games_tensor[s, mv_msk[s]]]
+            for s in range(games_tensor.size(0))
+        ]

@@ -4,11 +4,13 @@ import torch
 from transformers import AutoTokenizer
 
 def preproc_game(contents):
-    return re.sub(
+    return [
+        re.sub(
             r"[0-9]+[\.]+",
             "",
-            contents
-        )
+            content
+        ) for content in contents
+        ]
 
 def char_tokenize(contents, stoi, dtype):
         return np.array(
