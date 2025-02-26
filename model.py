@@ -461,11 +461,11 @@ class GPT(nn.Module):
         """
         Take a list of tokenized games. Autoregressively predict the next move with up to max_move_size tokens for each game, and output as token ids.
         """
-        main_process = (device == "cuda:0")
+        main_process = (device == "cuda:1")
 
-        print("To Calculate mPL")
+        # print("To Calculate mPL")
         min_prompt_len = max(min((len(game) for game in games)) - 1, 1)
-        print("Calculating mPL")
+        # print("Calculating mPL")
         max_prompt_len = max((len(game) for game in games))
         max_token = max_prompt_len + max_move_size
         games_tensor = torch.tensor(
@@ -474,22 +474,27 @@ class GPT(nn.Module):
             ],
             device = device
         )
-        if main_process:
-            print("Games Tensor Init Token:", games_tensor[:, 0])
-            print("First Move:", torch.all(games_tensor[:, 1:] < 0))
+        # if main_process:
+            # print("Games Tensor Init Token:", games_tensor[:, 0])
+            # print("First Move:", torch.all(games_tensor[:, 1:] < 0))
 
+        pmpt_msk = games_tensor >= 0
         mv_msk = games_tensor == -1
         sp_msk = games_tensor == SPACE_TOKEN
 
         for token in range(min_prompt_len, max_token):
+            # print(f"Token: {token}, {games_tensor[:, :token].flatten().unique()}")
             next_tokens = self.generate_token(games_tensor[:, :token], temperature = temperature, top_k = top_k).view(-1)
+            # print("NT:", next_tokens.flatten().unique())
             # Store next tokens if it is writing into an allotted move slot (within the max_move_size)
             # Can only overwrite a space if terminating the game (i.e. resigning).
             games_tensor[:, token] = torch.where(
-                mv_msk[:, token] | (overwrite_spaces & sp_msk[:, token] & next_tokens == EOS_TOKEN), 
+                ~pmpt_msk[:, token] | (overwrite_spaces & sp_msk[:, token] & next_tokens == EOS_TOKEN), 
                 next_tokens, 
                 games_tensor[:, token]
             )
+            # print("GT[T]:", games_tensor[:, token].flatten().unique())
+
         return [
             [idx_tensor.item() for idx_tensor in games_tensor[s, mv_msk[s]]]
             for s in range(games_tensor.size(0))

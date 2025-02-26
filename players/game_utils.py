@@ -61,67 +61,60 @@ class GameState(object):
 
     def register_move(self, move: str, parse_move: str = None):
         move_failed = False
-        print(f"register move: \'{move}\'")
+        # print(f"register move: \'{move}\'")
         if parse_move is not None:
             try:
                 if parse_move == "san":
                     move = self.board.parse_san(move)
                 elif parse_move == "uci":
                     move = self.board.parse_uci(move)
-                print("Parsed.")
+                # print("Parsed.")
             except IllegalMoveError:
-                print("IlME")
+                # print("IlME")
                 self.termination = f"Illegal Move: \'{move}\' given context: \'{self.state}\'; Player: \'{self.turn}\'"
                 move_failed = True
             except InvalidMoveError:
-                print("InME")
+                # print("InME")
                 self.termination = f"Invalid Move: \'{move}\' given context: \'{self.state}\'; Player: \'{self.turn}\'"
                 move_failed = True
             except AmbiguousMoveError:
-                print("AME")
+                # print("AME")
                 self.termination = f"Ambiguous Move: \'{move}\' given context: \'{self.state}\'; Player: \'{self.turn}\'"
                 move_failed = True
             except Exception as err:
                 print("Error:", err)
                 move_failed = True
             if not bool(move):
-                print("Null move")
+                # print("Null move")
                 self.termination = f"Parsed Null Move."
                 move_failed = True
 
-        if move_failed:
-            print("Resign because move failed")
-            self.resign()
-            return
-
-        self.board.push(move)
         self.state += str(move) + " "
         print("State:", self.state)
 
         self.G.append(str(move) + " ")
-        print(f"Added G, {self.turn}, {type(self.turn)}, {self.w_player_id}, {type(self.w_player_id)}, {self.players}, {self.players[self.turn]}")
         player_type = (-1 ** (1 * (self.turn != self.w_player_id))) if "GPT" in self.players[self.turn] else 0
         self.P.append(player_type)
-        print("Len(P):", len(self.P), "Len(G):", len(self.G))
         assert len(self.G) == len(self.P)
-        
-        print("Updated G/P")
+
+        if move_failed:
+            # print("Resign because move failed")
+            self.resign()
+            return
+
+        self.board.push(move)
 
         # if len(self.state) >= 1015: # TODO: Verify that player-level context length monitoring is sufficient
         #     self.decide()
         #     return
 
         outcome = self.board.outcome()
-        print("Outcome:", outcome)
 
         if outcome is None:
-            # Next Turn
-            print("Next Turn")
             self.turn = 1 - self.turn
             return
         
         self.outcome = self.board.result()
-        print("Result:", self.outcome)
 
     def is_complete(self):
         return self.outcome != ""

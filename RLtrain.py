@@ -25,7 +25,7 @@ from contextlib import nullcontext
 import numpy as np
 import torch
 from torch.nn.parallel import DistributedDataParallel as DDP
-from torch.distributed import init_process_group, destroy_process_group
+from torch.distributed import init_process_group, destroy_process_group, barrier
 
 from model import GPTConfig, GPT
 from utils import smooth
@@ -97,7 +97,7 @@ if ddp:
     print("DDP World Size:", ddp_world_size)
     device = f'cuda:{ddp_local_rank}'
     torch.cuda.set_device(device)
-    master_process = ddp_rank == 0 # this process will do logging, checkpointing etc.
+    master_process = ddp_rank == 1 # this process will do logging, checkpointing etc.
     seed_offset = ddp_rank # each process gets a different seed
     # world_size number of processes will be training simultaneously, so we can scale
     # down the desired gradient accumulation iterations per process proportionally
@@ -186,6 +186,11 @@ if wandb_log and master_process:
     import wandb
     # wandb.init(project=wandb_project, name=wandb_run_name, config=config)
 
+if ddp:
+    wait = lambda: barrier()
+else:
+    wait = lambda: None
+
 # training loop
 
 t0 = time.time()
@@ -196,50 +201,55 @@ running_mfu = -1.0
 pi_ref.eval()
 
 try:
-
     while True:
         # G: Indices of moves played in simulated games; B x S
         # P: Player Name/Type, -1 for black GPT Player, +1 for white GPT Player, 0 for Stockfish Player/Padding Tokens; B x S
         # R: Game Rewards, reward is -1 for black victory, +1 for white victory, 0 for draw; B x 0.
+        print("Pre Game Sample:", ddp_local_rank)
+
         with torch.no_grad():
             G, P, R = sample_games(pi_theta, batch_size, batch_size, ddp_local_rank, hf_tokenizer = hf_tokenizer, tokenizer_dir = tokenizer_dir, self_play = False, sf_time = 0.1)
             P = P[:, 1:] # B x (S - 1)
-        if master_process:
-            print("Games Sampled")
-
+        
+        print("Games Sampled:", ddp_local_rank)
         # determine and set the learning rate for this iteration
         lr = learning_rate
         for param_group in optimizer.param_groups:
             param_group['lr'] = lr
 
         # evaluate the loss on train/val sets and write checkpoints
-        if iter_num % eval_interval == 0 and master_process:
-            print("Start Estimate Elo")
+        if iter_num % eval_interval == 0:
+            
             with torch.no_grad():
-                elo = estimate_elo(pi_theta, batch_size, eval_iters, ddp_local_rank, f"./pgn/{iter_num}", hf_tokenizer = hf_tokenizer, tokenizer_dir = tokenizer_dir, world_size = ddp_world_size)
-            print(f"step {iter_num}: Elo rating {elo:.4f}")
-            if wandb_log:
-                wandb.log({
-                    "iter": iter_num,
-                    "elo": elo,
-                    "lr": lr,
-                    "mfu": running_mfu*100, # convert to percentage
-                })
-            if iter_num % ckpt_interval == 0:
-                if iter_num > 0:
-                    checkpoint = {
-                        'model': raw_model.state_dict(),
-                        'optimizer': optimizer.state_dict(),
-                        'model_args': model_args,
-                        'iter_num': iter_num,
-                        'config': config,
-                        "elo": elo
-                    }
-                    ckpt_dir = os.path.join(out_dir, f"ckpt_{iter_num}")
-                    if not os.path.isdir(ckpt_dir):
-                        os.mkdir(ckpt_dir)
-                    print(f"saving checkpoint to {ckpt_dir}")
-                    torch.save(checkpoint, os.path.join(ckpt_dir, 'ckpt.pt'))
+                elo = estimate_elo(pi_theta, batch_size, eval_iters, ddp_local_rank, f"./pgn/{iter_num}", wait, hf_tokenizer = hf_tokenizer, tokenizer_dir = tokenizer_dir, world_size = ddp_world_size)
+
+            print("Elo estimated:", ddp_local_rank)
+
+            if master_process:
+                print(f"step {iter_num}: Elo rating {elo:.4f}")
+                if wandb_log:
+                    wandb.log({
+                        "iter": iter_num,
+                        "elo": elo,
+                        "lr": lr,
+                        "mfu": running_mfu*100, # convert to percentage
+                    })
+                if iter_num % ckpt_interval == 0:
+                    if iter_num > 0:
+                        checkpoint = {
+                            'model': raw_model.state_dict(),
+                            'optimizer': optimizer.state_dict(),
+                            'model_args': model_args,
+                            'iter_num': iter_num,
+                            'config': config,
+                            "elo": elo
+                        }
+                        ckpt_dir = os.path.join(out_dir, f"ckpt_{iter_num}")
+                        if not os.path.isdir(ckpt_dir):
+                            os.mkdir(ckpt_dir)
+                        print(f"saving checkpoint to {ckpt_dir}")
+                        torch.save(checkpoint, os.path.join(ckpt_dir, 'ckpt.pt'))
+        
         if iter_num == 0 and eval_only:
             break
 
