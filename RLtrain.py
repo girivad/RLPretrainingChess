@@ -18,8 +18,6 @@ $ torchrun --nproc_per_node=8 --nnodes=2 --node_rank=1 --master_addr=123.456.123
 
 import os
 import time
-import math
-import pickle
 from contextlib import nullcontext
 
 import numpy as np
@@ -30,6 +28,7 @@ from torch.distributed import init_process_group, destroy_process_group, barrier
 from model import GPTConfig, GPT
 from utils import smooth
 from players.arena import sample_games, estimate_elo
+from tokenizer import load_tokenizer
 
 # -----------------------------------------------------------------------------
 # default config values designed to train a gpt2 (124M) on OpenWebText
@@ -97,7 +96,7 @@ if ddp:
     print("DDP World Size:", ddp_world_size)
     device = f'cuda:{ddp_local_rank}'
     torch.cuda.set_device(device)
-    master_process = ddp_rank == 1 # this process will do logging, checkpointing etc.
+    master_process = ddp_rank == 0 # this process will do logging, checkpointing etc.
     seed_offset = ddp_rank # each process gets a different seed
     # world_size number of processes will be training simultaneously, so we can scale
     # down the desired gradient accumulation iterations per process proportionally
@@ -204,6 +203,15 @@ raw_model = pi_theta.module if ddp else pi_theta # unwrap DDP container if neede
 running_mfu = -1.0
 
 pi_ref.eval()
+
+# tok, detok = load_tokenizer(hf_tokenizer, tokenizer_dir)
+# game_transcript = ''';d4 g6 Nf3 Bg7 g4 Nh6 e4 b6 h3 d6 e5 b5 Bxb5+ Bd7 Bd3 f5 '''
+# input_toks = torch.tensor(tok(game_transcript)).view(1, -1).type(torch.long).to(device)
+# gen_toks = pi_theta.module.generate(input_toks, 20)
+# if master_process:
+#     print(detok(gen_toks))
+
+# exit(0)
 
 try:
     while True:

@@ -22,7 +22,7 @@ def char_tokenize(contents, stoi, dtype):
 def char_detokenize(idx, itos):
     # idx may be a numpy array or a tensor or a List[List[int]]
     if isinstance(idx, torch.Tensor):
-        idx = idx.detach().clone().numpy()
+        idx = idx.cpu().detach().clone().numpy()
     # idx may be a single array or an array of arrays
     if type(idx[0]) == int:
         return "".join(itos[idx[j]] for j in range(len(idx)))
