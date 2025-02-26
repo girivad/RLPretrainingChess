@@ -141,12 +141,18 @@ def collate_games(files: List[str], write_out: str):
     global_pgn = open(write_out, "wb")
 
     for file in files:
+        print("Merging File:", file)
         local_pgn = open(file, "rb")
+        print("Opened Local PGN")
         stream = local_pgn.read(STREAM_SIZE)
-
-        while stream is not None:
+        print("Read first stream:", stream.decode("utf-8"))
+        while len(stream) > 0 and stream is not None:
             global_pgn.write(stream)
+            print("Wrote Stream")
             stream = local_pgn.read(STREAM_SIZE)
+            print("Stream:", stream.decode("utf-8"))
+        
+        print("Write Out Complete")
 
         local_pgn.close()
         os.remove(file)
@@ -187,6 +193,8 @@ def calc_elo(pgn_file):
 
 def estimate_elo(pi_theta, eval_bsz, eval_games, rank, write_out, hf_tokenizer = False, tokenizer_dir = "./data/lichess_hf_dataset", world_size = None):
     sample_games(pi_theta, eval_games, eval_bsz, rank, hf_tokenizer, tokenizer_dir, write_out = write_out)
+
+    
 
     if rank == 0:
         assert world_size is not None

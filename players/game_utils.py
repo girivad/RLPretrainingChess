@@ -138,7 +138,7 @@ class GameState(object):
         w_rating = self.ratings[self.w_player_id]
         b_rating = self.ratings[1 - self.w_player_id]
 
-        game = '''[White \"{} {}\"]\n[Black \"{} {}\"]\n[Result \"{}\"]\n{}'''.format(
+        game = '''[White \"{} {}\"]\n[Black \"{} {}\"]\n[Result \"{}\"]\n{}\n'''.format(
             w_player, w_rating, b_player, b_rating, self.outcome, self.outcome
         )
 
