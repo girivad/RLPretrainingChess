@@ -204,8 +204,8 @@ try:
         with torch.no_grad():
             G, P, R = sample_games(pi_theta, batch_size, batch_size, ddp_local_rank, hf_tokenizer = hf_tokenizer, tokenizer_dir = tokenizer_dir, self_play = False, sf_time = 0.1)
             P = P[:, 1:] # B x (S - 1)
-
-        print("Games Sampled:")
+        if master_process:
+            print("Games Sampled")
 
         # determine and set the learning rate for this iteration
         lr = learning_rate

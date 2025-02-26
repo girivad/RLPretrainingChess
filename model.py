@@ -463,7 +463,9 @@ class GPT(nn.Module):
         """
         main_process = (device == "cuda:0")
 
+        print("To Calculate mPL")
         min_prompt_len = max(min((len(game) for game in games)) - 1, 1)
+        print("Calculating mPL")
         max_prompt_len = max((len(game) for game in games))
         max_token = max_prompt_len + max_move_size
         games_tensor = torch.tensor(
@@ -472,9 +474,9 @@ class GPT(nn.Module):
             ],
             device = device
         )
-
-        print("Games Tensor Init Token:", games_tensor[:, 0])
-        print("First Move:", torch.all(games_tensor[:, 1:] < 0))
+        if main_process:
+            print("Games Tensor Init Token:", games_tensor[:, 0])
+            print("First Move:", torch.all(games_tensor[:, 1:] < 0))
 
         mv_msk = games_tensor == -1
         sp_msk = games_tensor == SPACE_TOKEN
