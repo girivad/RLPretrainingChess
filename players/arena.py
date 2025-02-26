@@ -171,6 +171,7 @@ def sample_games(pi_theta, total_games, bsz, rank, hf_tokenizer = False, tokeniz
             print("Have Run Games")
     else:
         G, P, R = arena.run_games(total_games)
+        G = G.type(torch.long)
         return G, P, R
 
 def calc_elo(pgn_file):

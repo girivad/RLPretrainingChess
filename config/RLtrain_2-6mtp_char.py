@@ -19,13 +19,13 @@ log_interval = 50  # don't print too too often
 
 always_save_checkpoint = True
 
-wandb_log = True
+wandb_log = False
 wandb_project = "chessformer"
 wandb_run_name = run_name
 
 dataset = data_dir
 gradient_accumulation_steps = 2
-batch_size = 1
+batch_size = 1 # 50
 block_size = 1023  # context of up to 1023 tokens (because dataset block size is 1024)
 
 # baby GPT model :)
@@ -37,7 +37,7 @@ dropout = 0.0 # for pretraining 0 is good, for finetuning try 0.1+
 bias = False # do we use bias inside LayerNorm and Linear layers?
 
 learning_rate = 3e-4
-max_iters = 600000
+max_iters = 0 #600000
 lr_decay_iters = max_iters  # make equal to max_iters usually
 min_lr = 3e-5  # learning_rate / 10 usually
 beta2 = 0.95  # make a bit bigger because number of tokens per iter is small

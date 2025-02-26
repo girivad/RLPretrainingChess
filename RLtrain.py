@@ -157,6 +157,11 @@ if block_size < pi_theta.config.block_size:
     pi_theta.crop_block_size(block_size)
     pi_ref.crop_block_size(block_size)
     model_args['block_size'] = block_size # so that the checkpoint will have the right value
+
+# Ensure Seer is not used for RL
+pi_theta.seer = None
+pi_ref.seer = None
+
 pi_theta.to(device)
 pi_ref.to(device)
 
@@ -264,7 +269,9 @@ try:
                 # looking at the source of that context manager, it just toggles this variable
                 pi_theta.require_backward_grad_sync = (micro_step == gradient_accumulation_steps - 1)
             with ctx:
+                print("G dtype:", type(G), G[0][0])
                 pi_t = smooth(pi_theta(G[:, :-1])) # B x (S - 1) x V
+                print("Pi_t calculated.")
                 # Index Select Workaround: https://github.com/pytorch/pytorch/issues/30574
                 pi_t_prbs = torch.gather(pi_t, 2, G[:, 1:].unsqueeze(2)).squeeze(2) # B x (S - 1)
 
