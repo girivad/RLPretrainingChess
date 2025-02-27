@@ -152,22 +152,22 @@ def sample_games(pi_theta, total_games, bsz, rank, hf_tokenizer = False, tokeniz
     else:
         p1 = StockfishPlayer(sf_time)
 
-    if rank == 1:
+    if rank == 0:
         print("Players Created")
 
     tokenize = None
     if write_out is None:
         tokenize, _ = load_tokenizer(hf_tokenizer, tokenizer_dir)
 
-    if rank == 1:
+    if rank == 0:
         print("Create Tokenizer")
 
     arena = Arena(p0, p1, bsz, rank, tokenize)
-    if rank == 1:
+    if rank == 0:
         print("Create Arena")
     if write_out:
         arena.run_games(total_games, write_out)
-        if rank == 1:
+        if rank == 0:
             print("Have Run Games")
     else:
         G, P, R = arena.run_games(total_games)
@@ -181,7 +181,7 @@ def calc_elo(pgn_file):
 def estimate_elo(pi_theta, eval_bsz, eval_games, rank, write_out, wait, hf_tokenizer = False, tokenizer_dir = "./data/lichess_hf_dataset", world_size = None):
     sample_games(pi_theta, eval_games, eval_bsz, rank, hf_tokenizer, tokenizer_dir, write_out = write_out)
     wait()
-    if rank == 1:
+    if rank == 0:
         assert world_size is not None
         collate_games([write_out + str(r) for r in range(world_size)], write_out)
         print("Games Collated")

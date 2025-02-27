@@ -25,6 +25,7 @@ class GameState(object):
         for player_idx in range(len(self.players)):
             if "Stockfish" not in self.players[player_idx]:
                 continue
+            assert self.sf_rating is not None
             self.players[player_idx] = "Stockfish-{}".format(self.sf_rating)
             self.ratings[player_idx] = self.sf_rating
     
@@ -51,6 +52,7 @@ class GameState(object):
 
     def resign(self):
         w_outcome = 0 if self.turn == self.w_player_id else 1
+        assert w_outcome is not None
         self.outcome = "{}-{}".format(
             w_outcome,
             1 - w_outcome
@@ -117,7 +119,7 @@ class GameState(object):
         self.outcome = self.board.result()
 
     def is_complete(self):
-        return self.outcome != ""
+        return self.outcome != "" and self.outcome is not None
 
     def get_gpr(self):
         R = 1 if self.outcome == "1-0" else -1 if self.outcome == "0-1" else 0
@@ -130,6 +132,12 @@ class GameState(object):
         b_player = self.players[1 - self.w_player_id]
         w_rating = self.ratings[self.w_player_id]
         b_rating = self.ratings[1 - self.w_player_id]
+
+        assert w_player is not None
+        assert w_rating is not None
+        assert b_player is not None
+        assert b_rating is not None
+        assert self.outcome is not None
 
         game = '''[White \"{} {}\"]\n[Black \"{} {}\"]\n[Result \"{}\"]\n{}\n'''.format(
             w_player, w_rating, b_player, b_rating, self.outcome, self.outcome

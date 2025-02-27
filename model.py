@@ -253,10 +253,9 @@ class GPT(nn.Module):
         x = self.seer.fusion(x)
         return self.seer.ln_f(x)
 
-    def forward(self, idx, targets=None, evaluate = False):
+    def forward(self, idx, targets=None, evaluate = False, inference_toks = 1):
         inference = targets is None
         device = idx.device
-        print("Forward idx:", idx)
         b, t = idx.size()
         assert t <= self.config.block_size, f"Cannot forward sequence of length {t}, block size is only {self.config.block_size}"
         pos = torch.arange(0, t, dtype=torch.long, device=device) # shape (t)
@@ -274,8 +273,10 @@ class GPT(nn.Module):
             x = block(x)
         x = self.transformer.ln_f(x)
 
-        if inference:
+        if inference and inference_toks == 1:
             return self.lm_head(x[:, [-1], :]), None
+        elif inference:
+            return self.lm_head(x), None
 
         # if we are given some desired targets also calculate the loss
         st_logits = self.lm_head(x) # Tokens 2:ctx_len + 1
@@ -463,7 +464,7 @@ class GPT(nn.Module):
         """
         Take a list of tokenized games. Autoregressively predict the next move with up to max_move_size tokens for each game, and output as token ids.
         """
-        main_process = (device == "cuda:1")
+        main_process = (device == "cuda:0")
 
         # print("To Calculate mPL")
         min_prompt_len = max(min((len(game) for game in games)) - 1, 1)

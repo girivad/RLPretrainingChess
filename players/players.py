@@ -71,19 +71,19 @@ class GPTPlayer(object):
 
         idx_moves = self.model.module.generate_moves(games, device = self.device, max_move_size = self.max_move_size, overwrite_spaces = self.char, temperature = self.temperature, top_k = self.k)
         str_moves = self.detokenizer(idx_moves)
-        if self.device == "cuda:1":
+        if self.device == "cuda:0":
             print("Str Moves:", str_moves)
         moves = [move.split()[0] for move in str_moves]
         
         for game_state, move in zip(game_states, moves):
             if ";" in move:
-                if self.device == "cuda:1":
+                if self.device == "cuda:0":
                     print("Game resigned.")
                 game_state.resign()
             else:
                 game_state.register_move(move, parse_move = "san" if self.char else "uci")
         
-        if self.device == "cuda:1":
+        if self.device == "cuda:0":
             print("Play Moves done.")
 
     def play(
