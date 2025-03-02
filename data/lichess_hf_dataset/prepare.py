@@ -43,7 +43,6 @@ if __name__ == "__main__":
 
     dataset_path = "adamkarvonen/chess_games"
     file_path = args.dataset
-    dtype = c_dtype if args.tok_type == "char" else t_dtype
 
     # Load the dataset
     dataset = load_dataset(dataset_path, data_files = file_path, split = "train")
@@ -68,7 +67,7 @@ if __name__ == "__main__":
     # })
 
     # we now want to tokenize the dataset. Using meta.pkl in the same directory as this file
-    tokenizer, detokenizer = load_tokenizer(args.tok_type, args.tokenizer_path)
+    tokenizer, detokenizer, dtype = load_tokenizer(args.tok_type, args.tokenizer_path)
 
     # to read the bin files later, e.g. with numpy:
     # m = np.memmap('train.bin', dtype=np.uint8, mode='r')
@@ -86,7 +85,7 @@ if __name__ == "__main__":
     column_name = "transcript"
 
     def process(example):
-        ids = tokenizer(";" + example[column_name])
+        ids = tokenizer(";" + example[column_name], return_type = "np")
         out = {"ids": ids, "len": len(ids)}
         return out
 
@@ -100,7 +99,7 @@ if __name__ == "__main__":
 
     for split in tokenized.keys():
         def split_pack():
-            yield from pack(tokenized[split])
+            yield from pack(tokenized[split], dtype = dtype)
         tokenized[split] = Dataset.from_generator(
             split_pack
         )
