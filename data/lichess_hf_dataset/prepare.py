@@ -6,7 +6,7 @@ from tqdm import tqdm
 import numpy as np
 from datasets import load_dataset, Dataset  # huggingface datasets
 import argparse
-from tokenizer import load_tokenizer
+from RLPretrainingChess.tokenizer.scripts.tokenizer import load_tokenizer
 
 # number of workers in .map() call
 # good number to use is ~order number of cpu cores // 2
@@ -35,15 +35,15 @@ def pack(ds, blk_size = 1024, dtype = c_dtype):
 parser = argparse.ArgumentParser()
 parser.add_argument("--dataset", type = str, required = True)
 parser.add_argument("--out_dir", default = os.path.dirname(__file__), type = str)
-parser.add_argument("--hf_tokenizer", type = bool, default = False)
-parser.add_argument("--tokenizer_dir", type = str, default = "./data/lichess_hf_dataset")
+parser.add_argument("--tok_type", type = bool, default = False)
+parser.add_argument("--tokenizer_path", type = str, default = "./data/lichess_hf_dataset/meta.pkl")
 args = parser.parse_args()
 
 if __name__ == "__main__":
 
     dataset_path = "adamkarvonen/chess_games"
     file_path = args.dataset
-    dtype = t_dtype if args.hf_tokenizer else c_dtype
+    dtype = c_dtype if args.tok_type == "char" else t_dtype
 
     # Load the dataset
     dataset = load_dataset(dataset_path, data_files = file_path, split = "train")
@@ -68,7 +68,7 @@ if __name__ == "__main__":
     # })
 
     # we now want to tokenize the dataset. Using meta.pkl in the same directory as this file
-    tokenizer, _ = load_tokenizer(args.hf_tokenizer, args.tokenizer_dir)
+    tokenizer, detokenizer = load_tokenizer(args.tok_type, args.tokenizer_path)
 
     # to read the bin files later, e.g. with numpy:
     # m = np.memmap('train.bin', dtype=np.uint8, mode='r')

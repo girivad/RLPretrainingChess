@@ -2,7 +2,7 @@ import chess, torch
 import chess.engine
 from model import GPT
 from typing import List
-from tokenizer import load_tokenizer
+from RLPretrainingChess.tokenizer.scripts.tokenizer import load_tokenizer
 from players.game_utils import GameState
 
 # Adapted from https://github.com/adamkarvonen/chess_gpt_eval/blob/master/main.py

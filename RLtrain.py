@@ -29,7 +29,6 @@ import torch.nn.functional as F
 from model import GPTConfig, GPT
 from utils import smooth
 from players.arena import sample_games, estimate_elo
-from tokenizer import load_tokenizer
 
 # -----------------------------------------------------------------------------
 # default config values designed to train a gpt2 (124M) on OpenWebText
