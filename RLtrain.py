@@ -18,18 +18,18 @@ $ torchrun --nproc_per_node=8 --nnodes=2 --node_rank=1 --master_addr=123.456.123
 
 import os
 import time
-import math
-import pickle
 from contextlib import nullcontext
 
 import numpy as np
 import torch
 from torch.nn.parallel import DistributedDataParallel as DDP
-from torch.distributed import init_process_group, destroy_process_group
+from torch.distributed import init_process_group, destroy_process_group, barrier
+import torch.nn.functional as F
 
 from model import GPTConfig, GPT
 from utils import smooth
 from players.arena import sample_games, estimate_elo
+from tokenizer import load_tokenizer
 
 # -----------------------------------------------------------------------------
 # default config values designed to train a gpt2 (124M) on OpenWebText
@@ -157,6 +157,11 @@ if block_size < pi_theta.config.block_size:
     pi_theta.crop_block_size(block_size)
     pi_ref.crop_block_size(block_size)
     model_args['block_size'] = block_size # so that the checkpoint will have the right value
+
+# Ensure Seer is not used for RL
+pi_theta.seer = None
+pi_ref.seer = None
+
 pi_theta.to(device)
 pi_ref.to(device)
 
@@ -184,7 +189,12 @@ if ddp:
 # logging
 if wandb_log and master_process:
     import wandb
-    wandb.init(project=wandb_project, name=wandb_run_name, config=config)
+    # wandb.init(project=wandb_project, name=wandb_run_name, config=config)
+
+if ddp:
+    wait = lambda: barrier()
+else:
+    wait = lambda: None
 
 # training loop
 
@@ -195,46 +205,68 @@ running_mfu = -1.0
 
 pi_ref.eval()
 
+# tok, detok = load_tokenizer(hf_tokenizer, tokenizer_dir)
+# game_transcript = ''';d4 g6 Nf3 Bg7 g4 Nh6 e4 b6 h3 d6 e5 b5 Bxb5+ Bd7 Bd3 f5 '''
+# input_toks = torch.tensor(tok(game_transcript)).view(1, -1).type(torch.long).to(device)
+# gen_toks = pi_theta.module.generate(input_toks, 20)
+# if master_process:
+#     print(detok(gen_toks))
+
+# exit(0)
+
+# try:
 while True:
     # G: Indices of moves played in simulated games; B x S
     # P: Player Name/Type, -1 for black GPT Player, +1 for white GPT Player, 0 for Stockfish Player/Padding Tokens; B x S
     # R: Game Rewards, reward is -1 for black victory, +1 for white victory, 0 for draw; B x 0.
+    print("Pre Game Sample:", ddp_local_rank)
+
     with torch.no_grad():
         G, P, R = sample_games(pi_theta, batch_size, batch_size, ddp_local_rank, hf_tokenizer = hf_tokenizer, tokenizer_dir = tokenizer_dir, self_play = False, sf_time = 0.1)
         P = P[:, 1:] # B x (S - 1)
-
+        G = G.to(device)
+        P = P.to(device)
+        R = R.to(device)
+    
+    print("Games Sampled:", ddp_local_rank)
     # determine and set the learning rate for this iteration
     lr = learning_rate
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
 
     # evaluate the loss on train/val sets and write checkpoints
-    if iter_num % eval_interval == 0 and master_process:
+    if iter_num % eval_interval == 0:
+        
         with torch.no_grad():
-            elo = estimate_elo(pi_theta, batch_size, eval_iters, ddp_local_rank, f"./pgn/{iter_num}", hf_tokenizer = hf_tokenizer, tokenizer_dir = tokenizer_dir, world_size = ddp_world_size)
-        print(f"step {iter_num}: Elo rating {elo:.4f}")
-        if wandb_log:
-            wandb.log({
-                "iter": iter_num,
-                "elo": elo,
-                "lr": lr,
-                "mfu": running_mfu*100, # convert to percentage
-            })
-        if iter_num % ckpt_interval == 0:
-            if iter_num > 0:
-                checkpoint = {
-                    'model': raw_model.state_dict(),
-                    'optimizer': optimizer.state_dict(),
-                    'model_args': model_args,
-                    'iter_num': iter_num,
-                    'config': config,
-                    "elo": elo
-                }
-                ckpt_dir = os.path.join(out_dir, f"ckpt_{iter_num}")
-                if not os.path.isdir(ckpt_dir):
-                    os.mkdir(ckpt_dir)
-                print(f"saving checkpoint to {ckpt_dir}")
-                torch.save(checkpoint, os.path.join(ckpt_dir, 'ckpt.pt'))
+            elo = estimate_elo(pi_theta, batch_size, eval_iters, ddp_local_rank, f"./pgn/{iter_num}", wait, hf_tokenizer = hf_tokenizer, tokenizer_dir = tokenizer_dir, world_size = ddp_world_size)
+
+        print("Elo estimated:", ddp_local_rank)
+
+        if master_process:
+            print(f"step {iter_num}: Elo rating {elo:.4f}")
+            if wandb_log:
+                wandb.log({
+                    "iter": iter_num,
+                    "elo": elo,
+                    "lr": lr,
+                    "mfu": running_mfu*100, # convert to percentage
+                })
+            if iter_num % ckpt_interval == 0:
+                if iter_num > 0:
+                    checkpoint = {
+                        'model': raw_model.state_dict(),
+                        'optimizer': optimizer.state_dict(),
+                        'model_args': model_args,
+                        'iter_num': iter_num,
+                        'config': config,
+                        "elo": elo
+                    }
+                    ckpt_dir = os.path.join(out_dir, f"ckpt_{iter_num}")
+                    if not os.path.isdir(ckpt_dir):
+                        os.mkdir(ckpt_dir)
+                    print(f"saving checkpoint to {ckpt_dir}")
+                    torch.save(checkpoint, os.path.join(ckpt_dir, 'ckpt.pt'))
+    
     if iter_num == 0 and eval_only:
         break
 
@@ -249,16 +281,21 @@ while True:
             # looking at the source of that context manager, it just toggles this variable
             pi_theta.require_backward_grad_sync = (micro_step == gradient_accumulation_steps - 1)
         with ctx:
-            pi_t = smooth(pi_theta(G[:, :-1])) # B x (S - 1) x V
+            pi_t, _ = pi_theta(G[:, :-1], evaluate = True, inference_toks = None) # B x (S - 1) x V
+            pi_t = smooth(F.softmax(pi_t))
             # Index Select Workaround: https://github.com/pytorch/pytorch/issues/30574
             pi_t_prbs = torch.gather(pi_t, 2, G[:, 1:].unsqueeze(2)).squeeze(2) # B x (S - 1)
 
             with torch.no_grad():
-                pi_r = smooth(pi_ref(G[:, :-1]))
+                pi_r, _ = pi_ref(G[:, :-1], evaluate = True, inference_toks = None)
+                pi_r = smooth(F.softmax(pi_r))
                 pi_r_prbs = torch.gather(pi_r, 2, G[:, 1:].unsqueeze(2)).squeeze(2) # B x (S - 1)
             
             prb_ratio = pi_t_prbs / pi_t_prbs.detach().clone() # B x (S - 1)
             clipped_ratio = torch.clip(prb_ratio, 1 - clip_eps, 1 + clip_eps) # B x (S - 1)
+
+            assert torch.all(pi_t_prbs > 0)
+            assert torch.all((P != 0).sum(dim = 1) > 0)
 
             loss = torch.mean(
                 torch.sum(
@@ -310,6 +347,9 @@ while True:
     # termination conditions
     if iter_num > max_iters:
         break
+
+# except Exception as err:
+#     print("Error:", err)
 
 if ddp:
     destroy_process_group()

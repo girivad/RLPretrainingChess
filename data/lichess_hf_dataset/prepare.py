@@ -5,9 +5,7 @@ import os
 from tqdm import tqdm
 import numpy as np
 from datasets import load_dataset, Dataset  # huggingface datasets
-import pickle
 import argparse
-import re
 from tokenizer import load_tokenizer
 
 # number of workers in .map() call
@@ -88,7 +86,7 @@ if __name__ == "__main__":
     column_name = "transcript"
 
     def process(example):
-        ids = tokenizer(example[column_name])
+        ids = tokenizer(";" + example[column_name])
         out = {"ids": ids, "len": len(ids)}
         return out
 

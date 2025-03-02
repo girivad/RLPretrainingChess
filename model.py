@@ -220,6 +220,7 @@ class GPT(nn.Module):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
     def seer_forward(self, emb, device):
+        print("Embedding:", emb)
         b, t, e = emb.size()
         xl2r = emb[:, :-1]
         xr2l = torch.flip(emb[:, 1:], dims = (1, ))
@@ -252,7 +253,7 @@ class GPT(nn.Module):
         x = self.seer.fusion(x)
         return self.seer.ln_f(x)
 
-    def forward(self, idx, targets=None, evaluate = False):
+    def forward(self, idx, targets=None, evaluate = False, inference_toks = 1):
         inference = targets is None
         device = idx.device
         b, t = idx.size()
@@ -272,8 +273,10 @@ class GPT(nn.Module):
             x = block(x)
         x = self.transformer.ln_f(x)
 
-        if inference:
+        if inference and inference_toks == 1:
             return self.lm_head(x[:, [-1], :]), None
+        elif inference:
+            return self.lm_head(x), None
 
         # if we are given some desired targets also calculate the loss
         st_logits = self.lm_head(x) # Tokens 2:ctx_len + 1
@@ -457,29 +460,45 @@ class GPT(nn.Module):
         return idx
     
     @torch.no_grad()
-    def generate_moves(self, games, max_move_size = 5, overwrite_spaces = True, temperature = 1.0, top_k = None):
+    def generate_moves(self, games, device, max_move_size = 5, overwrite_spaces = True, temperature = 1.0, top_k = None):
         """
         Take a list of tokenized games. Autoregressively predict the next move with up to max_move_size tokens for each game, and output as token ids.
         """
-        min_prompt_len = min((len(game) for game in games)) - 1
+        main_process = (device == "cuda:0")
+
+        # print("To Calculate mPL")
+        min_prompt_len = max(min((len(game) for game in games)) - 1, 1)
+        # print("Calculating mPL")
         max_prompt_len = max((len(game) for game in games))
         max_token = max_prompt_len + max_move_size
         games_tensor = torch.tensor(
             [
-                list(game) + [-1] * max_move_size + [-2] * (max_prompt_len - len(game) - max_move_size) for game in games
-            ]
+                list(game) + [-1] * max_move_size + [-2] * (max_token - len(game) - max_move_size) for game in games
+            ],
+            device = device
         )
+        # if main_process:
+            # print("Games Tensor Init Token:", games_tensor[:, 0])
+            # print("First Move:", torch.all(games_tensor[:, 1:] < 0))
+
+        pmpt_msk = games_tensor >= 0
         mv_msk = games_tensor == -1
         sp_msk = games_tensor == SPACE_TOKEN
 
         for token in range(min_prompt_len, max_token):
-            next_tokens = self.generate_token(games_tensor[:, :token], temperature = temperature, top_k = top_k)
+            # print(f"Token: {token}, {games_tensor[:, :token].flatten().unique()}")
+            next_tokens = self.generate_token(games_tensor[:, :token], temperature = temperature, top_k = top_k).view(-1)
+            # print("NT:", next_tokens.flatten().unique())
             # Store next tokens if it is writing into an allotted move slot (within the max_move_size)
             # Can only overwrite a space if terminating the game (i.e. resigning).
             games_tensor[:, token] = torch.where(
-                mv_msk[:, token] | (overwrite_spaces & sp_msk[:, token] & next_tokens == EOS_TOKEN), 
+                ~pmpt_msk[:, token] | (overwrite_spaces & sp_msk[:, token] & next_tokens == EOS_TOKEN), 
                 next_tokens, 
                 games_tensor[:, token]
             )
-        
-        return [list(games_tensor[s, mv_msk[s]]) for s in range(games_tensor.size(0))]
+            # print("GT[T]:", games_tensor[:, token].flatten().unique())
+
+        return [
+            [idx_tensor.item() for idx_tensor in games_tensor[s, mv_msk[s]]]
+            for s in range(games_tensor.size(0))
+        ]
