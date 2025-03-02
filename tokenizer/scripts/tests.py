@@ -20,7 +20,7 @@ if __name__ == "__main__":
     print(f"Testing {args.tok_type} tokenizer at {args.tokenizer_path}.")
     print(f"Allowing PGN{"/UCI" if uci_in else ""} -> {"UCI" if uci_out else "PGN"}")
 
-    tokenizer, detokenizer, V = load_tokenizer(args.tok_type, args.tokenizer_path)
+    tokenizer, detokenizer, dtype = load_tokenizer(args.tok_type, args.tokenizer_path)
 
     # Test on UCI Transcript
     uci_transcript = ";d2d4 e7e5 d4e5 f7f6 e5f6 d8f6 b1c3 f8b4 c1d2 b8c6 g1f3; d7d6 g2g3 c8g4 f1g2 e8c8 h2h3 g4f3 g2f3 b4c3 d2c3 f6g5 e1g1 g5c5 d1d4 c5d4 c3d4 c6d4 f3g2 d4c2 a1c1 c2b4 a2a3 b4a2 c1c2 g8f6 b2b4 c7c6 c2a2 f6d5 f1c1 d8e8 e2e3 d5b6 a3a4 b6c4 c1c4 d6d5 g2d5 c8d7 d5g2 b7b5 a4b5 c6b5 c4c5 a7a6 a2a6 e8e6 a6a7 d7d6 a7a6 d6e7 c5c7 e7f6 a6e6 f6e6 c7c5 h8d8 c5b5 d8d1 g1h2 e6d6 b5b7 d6e5 b7g7 h7h5 h3h4 d1b1 g7g5 e5d6 b4b5 d6c7 g5h5 c7b6 h5g5 b1b5 g5b5 b6b5 h4h5 b5c5 h5h6 c5d6 h6h7 d6e7 h7h8q e7f7 h8h6 f7g8 e3e4 g8f7 e4e5 f7g8 h6a6 g8h8 a6a8 h8g7 a8b7 g7g6 b7c6 g6h5 c6f6 h5g4 f2f3 g4h5 g3g4;"
