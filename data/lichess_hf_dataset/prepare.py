@@ -6,7 +6,7 @@ from tqdm import tqdm
 import numpy as np
 from datasets import load_dataset, Dataset  # huggingface datasets
 import argparse
-from RLPretrainingChess.tokenizer.scripts.tokenizer import load_tokenizer
+from tokenizer.scripts.tokenizer import load_tokenizer
 
 # number of workers in .map() call
 # good number to use is ~order number of cpu cores // 2

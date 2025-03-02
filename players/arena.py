@@ -2,7 +2,7 @@ import chess, torch, os
 from typing import List
 from players.players import GPTPlayer, StockfishPlayer
 from players.game_utils import GameState
-from RLPretrainingChess.tokenizer.scripts.tokenizer import load_tokenizer
+from tokenizer.scripts.tokenizer import load_tokenizer
 from time import time
 
 STREAM_SIZE = 1024 ** 3
