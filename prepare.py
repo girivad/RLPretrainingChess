@@ -35,7 +35,7 @@ def pack(ds, blk_size = 1024, dtype = c_dtype):
 parser = argparse.ArgumentParser()
 parser.add_argument("--dataset", type = str, required = True)
 parser.add_argument("--out_dir", default = os.path.dirname(__file__), type = str)
-parser.add_argument("--tok_type", type = bool, default = False)
+parser.add_argument("--tok_type", type = str, required = True)
 parser.add_argument("--tokenizer_path", type = str, default = "./data/lichess_hf_dataset/meta.pkl")
 args = parser.parse_args()
 
@@ -85,6 +85,7 @@ if __name__ == "__main__":
     column_name = "transcript"
 
     def process(example):
+        assert tokenizer is not None
         ids = tokenizer(";" + example[column_name], return_type = "np")
         out = {"ids": ids, "len": len(ids)}
         return out

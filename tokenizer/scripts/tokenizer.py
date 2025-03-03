@@ -15,7 +15,7 @@ def get_dtype(V):
 def preproc_game(contents):
     if not isinstance(contents, list):
         return re.sub(
-            r"[0-9]+\. ",
+            r"[0-9]+\.",
             "",
             contents
         )
@@ -84,6 +84,7 @@ def hf_tokenize(tokenizer, ex, dtype, batch = False):
     return ids[0].astype(dtype)
 
 def load_tokenizer(tok_type, tokenizer_path):
+    tokenize, detokenize = None, None
     if tok_type == "hf":
         tokenizer = AutoTokenizer.from_pretrained(tokenizer_path, local_files_only = True)
         V = len(tokenizer.vocab)
@@ -99,9 +100,8 @@ def load_tokenizer(tok_type, tokenizer_path):
 
         if tok_type == "char":
             tokenize = lambda ex, batch = False, return_type = "np": char_tokenize(preproc_game(ex), stoi, dtype, return_type = return_type) if not batch else [char_tokenize(x, stoi, dtype, return_type = return_type) for x in preproc_game(ex)]
-            detokenize = lambda idx, batch = False: map_detokenize(idx, itos, batch)
         elif tok_type == "move":
             tokenize = lambda ex, batch = False, return_type = "np": move_tokenize(preproc_game(ex), stoi, dtype, return_type = return_type) if not batch else [move_tokenize(x, stoi, dtype, return_type = return_type) for x in preproc_game(ex)]
-            detokenize = lambda idx, batch = False: map_detokenize(idx, itos, batch)
+        detokenize = lambda idx, batch = False: map_detokenize(idx, itos, batch)
 
     return tokenize, detokenize, dtype
