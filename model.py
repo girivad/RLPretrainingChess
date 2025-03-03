@@ -124,6 +124,8 @@ class GPTConfig:
     bias: bool = True # True: bias in Linears and LayerNorms, like GPT-2. False: a bit better and faster
     n_slayer: int = 0
     lamda: float = 0.5
+    aux_seer_loss: bool = True
+    aux_rcausal_loss: bool = False
 
 def ce_loss(logits, targets):
     return F.cross_entropy(logits.view(-1, logits.size(-1)), targets.reshape(-1), ignore_index=-1)
@@ -143,6 +145,27 @@ def kd_loss(st_logits, se_logits):
 
 def z_loss(logits):
     return 1e-4 * (logsumexp(logits, dim = -1) ** 2).sum()
+
+# Auxiliary Pretraining Losses:
+def aux_seer_loss(st_logits, se_logits, idx, base_loss, lamda = 0.5):
+    loss_dict = dict()
+    loss = base_loss
+
+    # KL-Divergence between Student and Seer
+    kld, se_entropy = kd_loss(st_logits[:, :-1], se_logits[:, 1:].detach().clone())
+    loss_dict["seer entropy"] = se_entropy
+    loss_dict["kld"] = kld.item()
+    loss = lamda * loss + (1 - lamda) * kld 
+    assert not torch.any(torch.isnan(loss))
+
+    # Cross-Entropy for Seer
+    # The seer only predicts tokens within context window, no right-shifting needed.
+    se_ce = ce_loss(se_logits, idx)
+    loss_dict["se_ce"] = se_ce.item()
+    loss = loss + se_ce
+    assert not torch.any(torch.isnan(loss))
+
+    return loss, loss_dict
 
 class GPT(nn.Module):
 
@@ -253,7 +276,7 @@ class GPT(nn.Module):
         x = self.seer.fusion(x)
         return self.seer.ln_f(x)
 
-    def forward(self, idx, targets=None, evaluate = False, inference_toks = 1):
+    def forward(self, idx, targets = None, evaluate = False, batch_inf = False):
         inference = targets is None
         device = idx.device
         b, t = idx.size()
@@ -273,7 +296,7 @@ class GPT(nn.Module):
             x = block(x)
         x = self.transformer.ln_f(x)
 
-        if inference and inference_toks == 1:
+        if inference and not batch_inf:
             return self.lm_head(x[:, [-1], :]), None
         elif inference:
             return self.lm_head(x), None
@@ -282,7 +305,6 @@ class GPT(nn.Module):
         st_logits = self.lm_head(x) # Tokens 2:ctx_len + 1
         loss = ce_loss(st_logits, targets)
         loss_dict["st_ce"] = loss.item()
-
         assert not torch.any(torch.isnan(loss))
 
         if evaluate:
@@ -292,25 +314,22 @@ class GPT(nn.Module):
         if self.seer is not None:
             h = self.seer_forward(emb, device = device)
             se_logits = self.lm_head(h) # 1 : ctx_len
-            kld, se_entropy = kd_loss(st_logits[:, :-1], se_logits[:, 1:].detach().clone())
-            loss_dict["seer entropy"] = se_entropy
-            loss_dict["kld"] = kld.item()
-            loss = self.config.lamda * loss + (1 - self.config.lamda) * kld # The seer only predicts tokens within context window.
-            assert not torch.any(torch.isnan(loss))
-            se_ce = ce_loss(se_logits, idx)
-            loss_dict["se_ce"] = se_ce.item()
-            loss = loss + se_ce # No right-shifting needed.
-            assert not torch.any(torch.isnan(loss))
-        
+            if self.config.aux_seer_loss:
+                # SeerLoss: (st_logits, se_logits, idx, base_loss, lambda = self.config.lambda) -> (loss, loss_dict)
+                loss, aux_loss_dict = aux_seer_loss(st_logits, se_logits, idx, loss, lamda = self.config.lamda)
+                loss_dict = dict(loss_dict, **aux_loss_dict)    
+                assert not torch.any(torch.isnan(loss))
+
         st_z = z_loss(st_logits)
         loss_dict["st_z"] = st_z.item()
         loss = loss + st_z
         assert not torch.any(torch.isnan(loss))
+
         if self.seer is not None:
             se_z = z_loss(se_logits)
             loss_dict["se_z"] = se_z.item()
             loss = loss + se_z
-        assert not torch.any(torch.isnan(loss))
+            assert not torch.any(torch.isnan(loss))
 
         return st_logits, loss, loss_dict
 

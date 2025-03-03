@@ -280,13 +280,13 @@ while True:
             # looking at the source of that context manager, it just toggles this variable
             pi_theta.require_backward_grad_sync = (micro_step == gradient_accumulation_steps - 1)
         with ctx:
-            pi_t, _ = pi_theta(G[:, :-1], evaluate = True, inference_toks = None) # B x (S - 1) x V
+            pi_t, _ = pi_theta(G[:, :-1], evaluate = True, batch_inf = True) # B x (S - 1) x V
             pi_t = smooth(F.softmax(pi_t))
             # Index Select Workaround: https://github.com/pytorch/pytorch/issues/30574
             pi_t_prbs = torch.gather(pi_t, 2, G[:, 1:].unsqueeze(2)).squeeze(2) # B x (S - 1)
 
             with torch.no_grad():
-                pi_r, _ = pi_ref(G[:, :-1], evaluate = True, inference_toks = None)
+                pi_r, _ = pi_ref(G[:, :-1], evaluate = True, batch_inf = True)
                 pi_r = smooth(F.softmax(pi_r))
                 pi_r_prbs = torch.gather(pi_r, 2, G[:, 1:].unsqueeze(2)).squeeze(2) # B x (S - 1)
             

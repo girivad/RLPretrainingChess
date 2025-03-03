@@ -43,7 +43,7 @@ init_from = 'scratch' # 'scratch' or 'resume' or 'gpt2*'
 # wandb logging
 wandb_log = False # disabled by default
 wandb_project = 'owt'
-wandb_run_name = 'gpt2' # 'run' + str(time.time())
+wandb_run_name = 'gpt2'
 # data
 dataset = 'openwebtext'
 gradient_accumulation_steps = 5 * 8 # used to simulate larger batch sizes
@@ -56,6 +56,10 @@ n_head = 12
 n_embd = 768
 dropout = 0.0 # for pretraining 0 is good, for finetuning try 0.1+
 bias = False # do we use bias inside LayerNorm and Linear layers?
+vocab_size = 29 # Char Tokenizer
+# aux losses
+aux_seer_loss = False
+aux_rcausal_loss = False
 # adamw optimizer
 learning_rate = 6e-4 # max learning rate
 max_iters = 600000 # total number of training iterations
@@ -114,10 +118,18 @@ device_type = 'cuda' if 'cuda' in device else 'cpu' # for later use in torch.aut
 ptdtype = {'float32': torch.float32, 'bfloat16': torch.bfloat16, 'float16': torch.float16}[dtype]
 ctx = nullcontext() if device_type == 'cpu' else torch.amp.autocast(device_type=device_type, dtype=ptdtype)
 
+def get_dtype(V):
+    if V < 2 ** 8:
+        return np.uint8
+    if V < 2 ** 16:
+        return np.uint16
+    if V < 2 ** 32:
+        return np.uint32
+
 # poor man's data loader
 data_dir = dataset
-train_data = np.memmap(os.path.join(data_dir, 'train.bin'), dtype=np.uint8, mode='r')
-val_data = np.memmap(os.path.join(data_dir, 'val.bin'), dtype=np.uint8, mode='r')
+train_data = np.memmap(os.path.join(data_dir, 'train.bin'), dtype=get_dtype(vocab_size), mode='r')
+val_data = np.memmap(os.path.join(data_dir, 'val.bin'), dtype=get_dtype(vocab_size), mode='r')
 def get_batch(split):
     data = train_data if split == 'train' else val_data
     # ix = torch.randint(len(data) - block_size, (batch_size,))
@@ -136,27 +148,13 @@ def get_batch(split):
 iter_num = 0
 best_val_loss = 1e9
 
-# attempt to derive vocab_size from the dataset
-meta_path = os.path.join(data_dir, 'meta.pkl')
-meta_vocab_size = None
-if os.path.exists(meta_path):
-    with open(meta_path, 'rb') as f:
-        meta = pickle.load(f)
-    meta_vocab_size = meta['vocab_size']
-    print(f"found vocab_size = {meta_vocab_size} (inside {meta_path})")
-
 # model init
 model_args = dict(n_slayer=n_slayer, n_layer=n_layer, n_head=n_head, n_embd=n_embd, block_size=block_size,
-                  bias=bias, vocab_size=None, dropout=dropout) # start with model_args from command line
+                  bias=bias, vocab_size=vocab_size, dropout=dropout, aux_seer_loss = aux_seer_loss, aux_rcausal_loss = aux_rcausal_loss) # start with model_args from command line
 
 if init_from == 'scratch':
     # init a new model from scratch
-    print("Initializing a new model from scratch")
-    # determine the vocab size we'll use for from-scratch training
-    print("defaulting to vocab_size of GPT-2 to 29")
-    model_args["vocab_size"] = 29
-    if meta_vocab_size is not None:
-        model_args['vocab_size'] = meta_vocab_size
+    print("Initializing a new model from scratch:", model_args)
     gptconf = GPTConfig(**model_args)
     model = GPT(gptconf)
 elif init_from == 'resume':
@@ -167,7 +165,7 @@ elif init_from == 'resume':
     checkpoint_model_args = checkpoint['model_args']
     # force these config attributes to be equal otherwise we can't even resume training
     # the rest of the attributes (e.g. dropout) can stay as desired from command line
-    for k in ['n_layer', 'n_head', 'n_embd', 'block_size', 'bias', 'vocab_size']:
+    for k in ['n_slayer', 'n_layer', 'n_head', 'n_embd', 'block_size', 'bias', 'vocab_size', 'aux_seer_loss', 'aux_rcausal_loss']:
         model_args[k] = checkpoint_model_args[k]
     # create the model
     gptconf = GPTConfig(**model_args)
