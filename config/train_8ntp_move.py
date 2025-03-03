@@ -23,7 +23,7 @@ wandb_project = "chessformer"
 wandb_run_name = run_name
 
 dataset = data_dir
-gradient_accumulation_steps = 1
+gradient_accumulation_steps = 2
 batch_size = 100
 block_size = 1023  # context of up to 1023 tokens (because dataset block size is 1024)
 

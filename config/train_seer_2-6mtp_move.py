@@ -11,7 +11,7 @@ run_name = "2-6layer_moves_mtp_lichess " + str(timestamp)
 out_dir = os.path.join(model_dir, run_name)
 eval_interval = 4000
 eval_iters = 100
-ckpt_interval = 50000
+ckpt_interval = 25000
 # I'm not sure what's going on, but when log_interval == 100, the time per iter is inaccurate and much longer than it should be
 # when running on multiple GPUs. TODO: investigate
 log_interval = 50  # don't print too too often
@@ -23,7 +23,7 @@ wandb_project = "chessformer"
 wandb_run_name = run_name
 
 dataset = data_dir
-gradient_accumulation_steps = 1
+gradient_accumulation_steps = 2
 batch_size = 100
 block_size = 1023  # context of up to 1023 tokens (because dataset block size is 1024)
 
