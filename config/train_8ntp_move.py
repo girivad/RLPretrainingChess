@@ -6,7 +6,7 @@ model_dir = "../../model_vol"
 data_dir = "../../model_vol/data_dir/pretrain"
 
 timestamp = datetime.now(ZoneInfo("America/Los_Angeles"))
-run_name = "2-6layer_moves_mtp_lichess " + str(timestamp)
+run_name = "ntp_lichess " + str(timestamp)
 
 out_dir = os.path.join(model_dir, run_name)
 eval_interval = 4000
@@ -28,8 +28,8 @@ batch_size = 50
 block_size = 1023  # context of up to 1023 tokens (because dataset block size is 1024)
 
 # baby GPT model :)
-n_slayer = 2
-n_layer = 6
+n_slayer = 0
+n_layer = 8
 n_head = 8
 n_embd = 512
 dropout = 0.0 # for pretraining 0 is good, for finetuning try 0.1+
