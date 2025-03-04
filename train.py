@@ -27,7 +27,7 @@ import torch
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.distributed import init_process_group, destroy_process_group
 
-from model import GPTConfig, GPT
+from model import GPTConfig, GPT, name_losses
 
 # -----------------------------------------------------------------------------
 # default config values designed to train a gpt2 (124M) on OpenWebText
@@ -297,7 +297,8 @@ while True:
             # looking at the source of that context manager, it just toggles this variable
             model.require_backward_grad_sync = (micro_step == gradient_accumulation_steps - 1)
         with ctx:
-            logits, loss, micro_loss_dict = model(X, Y)
+            logits, loss, micro_loss_tensor = model(X, Y)
+            micro_loss_dict = name_losses(micro_loss_tensor)
             assert not torch.any(torch.isnan(loss))
             loss = loss / gradient_accumulation_steps # scale the loss to account for gradient accumulation
             assert not torch.any(torch.isnan(loss))
