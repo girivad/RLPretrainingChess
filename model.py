@@ -243,7 +243,6 @@ class GPT(nn.Module):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
     def seer_forward(self, emb, device):
-        print("Embedding:", emb)
         b, t, e = emb.size()
         xl2r = emb[:, :-1]
         xr2l = torch.flip(emb[:, 1:], dims = (1, ))
