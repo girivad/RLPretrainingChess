@@ -14,14 +14,13 @@ from dataclasses import dataclass
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
-from torch.nn.attention.bias import causal_lower_right, causal_upper_left
 from torch import logsumexp
 from torch.distributions import Categorical
-
 from utils import smooth
 
 SPACE_TOKEN = 0
 EOS_TOKEN = 15
+LOSS_COUNT = 6
 
 class LayerNorm(nn.Module):
     """ LayerNorm but with an optional bias. PyTorch doesn't support simply bias=False """
@@ -140,32 +139,52 @@ def kd_loss(st_logits, se_logits):
             se_probs
         )
     )
-    se_entropy = torch.mean(Categorical(probs = smooth(se_probs)).entropy()).item()
+    se_entropy = torch.mean(Categorical(probs = smooth(se_probs)).entropy())
     return -1 * kld / (b * t), se_entropy
 
 def z_loss(logits):
     return 1e-4 * (logsumexp(logits, dim = -1) ** 2).sum()
 
 # Auxiliary Pretraining Losses:
-def aux_seer_loss(st_logits, se_logits, idx, base_loss, lamda = 0.5):
-    loss_dict = dict()
+def aux_seer_loss(st_logits, se_logits, idx, base_loss, loss_tensor, lamda = 0.5):
+    # loss_dict = dict()
     loss = base_loss
 
     # KL-Divergence between Student and Seer
     kld, se_entropy = kd_loss(st_logits[:, :-1], se_logits[:, 1:].detach().clone())
-    loss_dict["seer entropy"] = se_entropy
-    loss_dict["kld"] = kld.item()
+    loss_tensor[2] = kld
+    loss_tensor[3] = se_entropy
+    # loss_dict["seer entropy"] = se_entropy
+    # loss_dict["kld"] = kld.item()
     loss = lamda * loss + (1 - lamda) * kld 
     assert not torch.any(torch.isnan(loss))
 
     # Cross-Entropy for Seer
     # The seer only predicts tokens within context window, no right-shifting needed.
     se_ce = ce_loss(se_logits, idx)
-    loss_dict["se_ce"] = se_ce.item()
+    loss_tensor[4] = se_ce
+    # loss_dict["se_ce"] = se_ce.item()
     loss = loss + se_ce
     assert not torch.any(torch.isnan(loss))
 
-    return loss, loss_dict
+    return loss
+
+loss_names = {
+    0: "st_ce",
+    1: "st_z",
+    2: "kld",
+    3: "se_e",
+    4: "se_ce",
+    5: "se_z"
+}
+
+def name_losses(loss_tensor):
+    loss_dict = {
+        loss_names[idx]: loss_tensor[idx].item() for idx in range(loss_tensor.size(0))
+    }
+
+    return loss_dict
+
 
 class GPT(nn.Module):
 
@@ -282,7 +301,8 @@ class GPT(nn.Module):
         assert t <= self.config.block_size, f"Cannot forward sequence of length {t}, block size is only {self.config.block_size}"
         pos = torch.arange(0, t, dtype=torch.long, device=device) # shape (t)
 
-        loss_dict = dict()
+        # loss_dict = None #dict()
+        loss_tensor = torch.zeros((LOSS_COUNT, ))
 
         # forward the GPT model itself
         tok_emb = self.transformer.wte(idx) # token embeddings of shape (b, t, n_embd)
@@ -303,7 +323,8 @@ class GPT(nn.Module):
         # if we are given some desired targets also calculate the loss
         st_logits = self.lm_head(x) # Tokens 2:ctx_len + 1
         loss = ce_loss(st_logits, targets)
-        loss_dict["st_ce"] = loss.item()
+        loss_tensor[0] = loss
+        # loss_dict["st_ce"] = loss.item()
         assert not torch.any(torch.isnan(loss))
 
         if evaluate:
@@ -315,22 +336,24 @@ class GPT(nn.Module):
             se_logits = self.lm_head(h) # 1 : ctx_len
             if self.config.aux_seer_loss:
                 # SeerLoss: (st_logits, se_logits, idx, base_loss, lambda = self.config.lambda) -> (loss, loss_dict)
-                loss, aux_loss_dict = aux_seer_loss(st_logits, se_logits, idx, loss, lamda = self.config.lamda)
-                loss_dict = dict(loss_dict, **aux_loss_dict)    
+                loss = aux_seer_loss(st_logits, se_logits, idx, loss, loss_tensor, lamda = self.config.lamda)
+                # loss_dict = dict(loss_dict, **aux_loss_dict)    
                 assert not torch.any(torch.isnan(loss))
 
         st_z = z_loss(st_logits)
-        loss_dict["st_z"] = st_z.item()
+        loss_tensor[1] = st_z
+        # loss_dict["st_z"] = st_z.item()
         loss = loss + st_z
         assert not torch.any(torch.isnan(loss))
 
         if self.seer is not None:
             se_z = z_loss(se_logits)
-            loss_dict["se_z"] = se_z.item()
+            loss_tensor[5] = se_z
+            # loss_dict["se_z"] = se_z.item()
             loss = loss + se_z
             assert not torch.any(torch.isnan(loss))
 
-        return st_logits, loss, loss_dict
+        return st_logits, loss, loss_tensor
 
     def crop_block_size(self, block_size):
         # model surgery to decrease the block size if necessary
