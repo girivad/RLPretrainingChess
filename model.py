@@ -76,7 +76,19 @@ class SelfAttention(nn.Module):
             att = F.softmax(att, dim=-1)
             att = self.attn_dropout(att)
             y = att @ v # (B, nh, T, T) x (B, nh, T, hs) -> (B, nh, T, hs)
-        y = y.transpose(1, 2).contiguous().view(B, T, C) # re-assemble all head outputs side by side
+
+        # Continuous Influence AuxLoss
+        # att.T@y: (B, nh, T, hs)
+        # y: (B, nh, T, hs)
+        # w_r(y): Individual maps for different heads, w_r: nh * hs -> nh * hs => nh x hs
+        
+        # aux_target = att.transpose(2, 3) @ y
+        # y = y.transpose(1, 2).contiguous().view(B, T, C) # re-assemble all head outputs side by side
+        # aux_loss = torch.mean(
+        #     torch.square(
+        #         aux_target - self.w_r(y).view(B, T, self.n_head, C // self.n_head).transpose(1, 2)
+        #     )
+        # )
 
         # output projection
         y = self.resid_dropout(self.c_proj(y))
