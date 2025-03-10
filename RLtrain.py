@@ -50,6 +50,7 @@ dataset = 'openwebtext'
 gradient_accumulation_steps = 5 * 8 # used to simulate larger batch sizes
 batch_size = 12 # if gradient_accumulation_steps > 1, this is the micro-batch size
 block_size = 1024
+max_iters = 600000 # total number of training iterations
 # tokenizer
 hf_tokenizer = False
 tokenizer_dir = "./data/lichess_hf_dataset"
@@ -60,11 +61,12 @@ n_head = 12
 n_embd = 768
 dropout = 0.0 # for pretraining 0 is good, for finetuning try 0.1+
 bias = False # do we use bias inside LayerNorm and Linear layers?
+# RL
+baseline = None
+clip_eps = 0.2
 # adamw optimizer
 beta = 0.9
-clip_eps = 0.2
 learning_rate = 6e-4 # max learning rate
-max_iters = 600000 # total number of training iterations
 weight_decay = 1e-1
 beta1 = 0.9
 beta2 = 0.95
@@ -188,7 +190,7 @@ if ddp:
 # logging
 if wandb_log and master_process:
     import wandb
-    # wandb.init(project=wandb_project, name=wandb_run_name, config=config)
+    wandb.init(project=wandb_project, name=wandb_run_name, config=config)
 
 if ddp:
     wait = lambda: barrier()
@@ -233,7 +235,7 @@ while True:
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
 
-    # evaluate the loss on train/val sets and write checkpoints
+    # evaluate the elo on further games and write checkpoints
     if iter_num % eval_interval == 0:
         
         with torch.no_grad():

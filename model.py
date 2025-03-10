@@ -135,7 +135,7 @@ class GPTConfig:
     bias: bool = True # True: bias in Linears and LayerNorms, like GPT-2. False: a bit better and faster
     n_slayer: int = 0
     lamda: float = 0.5
-    aux_seer_loss: bool = True
+    aux_seer_loss: bool = False
     aux_rcausal_loss: bool = False
 
 def ce_loss(logits, targets):

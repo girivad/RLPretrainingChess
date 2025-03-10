@@ -145,10 +145,15 @@ def collate_games(files: List[str], write_out: str):
     
     global_pgn.close()
 
-def sample_games(pi_theta, total_games, bsz, rank, hf_tokenizer = False, tokenizer_dir = "./data/lichess_hf_dataset", self_play = False, write_out = None, sf_time = 0.1):
-    p0 = GPTPlayer(pi_theta, f"cuda:{rank}", max_move_size = (5 if not hf_tokenizer else 1), hf_tokenizer = hf_tokenizer, tokenizer_dir = tokenizer_dir)
+MMS = {
+    "char": 5,
+    "move": 2
+}
+
+def sample_games(pi_theta, total_games, bsz, rank, tok_type = "move", tokenizer_path = "./tokenizer/tokenizers/move_token.pkl", self_play = False, write_out = None, sf_time = 0.1):
+    p0 = GPTPlayer(pi_theta, f"cuda:{rank}", max_move_size = MMS[tok_type], tok_type = tok_type, tokenizer_path = tokenizer_path)
     if self_play:
-        p1 = GPTPlayer(pi_theta, f"cuda:{rank}", max_move_size = (5 if not hf_tokenizer else 1), hf_tokenizer = hf_tokenizer, tokenizer_dir = tokenizer_dir)
+        p1 = GPTPlayer(pi_theta, f"cuda:{rank}", max_move_size = MMS[tok_type], tok_type = tok_type, tokenizer_path = tokenizer_path)
     else:
         p1 = StockfishPlayer(sf_time)
 
@@ -157,7 +162,7 @@ def sample_games(pi_theta, total_games, bsz, rank, hf_tokenizer = False, tokeniz
 
     tokenize = None
     if write_out is None:
-        tokenize, _ = load_tokenizer(hf_tokenizer, tokenizer_dir)
+        tokenize, _ = load_tokenizer(tok_type, tokenizer_path)
 
     if rank == 0:
         print("Create Tokenizer")
@@ -178,8 +183,8 @@ def calc_elo(pgn_file):
     print("Dummy Elo")
     return 1250
 
-def estimate_elo(pi_theta, eval_bsz, eval_games, rank, write_out, wait, hf_tokenizer = False, tokenizer_dir = "./data/lichess_hf_dataset", world_size = None):
-    sample_games(pi_theta, eval_games, eval_bsz, rank, hf_tokenizer, tokenizer_dir, write_out = write_out)
+def estimate_elo(pi_theta, eval_bsz, eval_games, rank, write_out, wait, tok_type = "move", tokenizer_path = "./tokenizer/tokenizers/move_token.pkl", world_size = None):
+    sample_games(pi_theta, eval_games, eval_bsz, rank, tok_type, tokenizer_path, write_out = write_out)
     wait()
     if rank == 0:
         assert world_size is not None

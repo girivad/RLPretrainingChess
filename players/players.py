@@ -41,18 +41,17 @@ class StockfishPlayer(object):
         self._engine.quit()
 
 class GPTPlayer(object):
-    def __init__(self, model: GPT, device, max_move_size = 5, hf_tokenizer = False, tokenizer_dir = "./data/lichess_hf_dataset", topk = None, temp = 1):
+    def __init__(self, model: GPT, device, max_move_size = 5, tok_type = "move", tokenizer_path = "./tokenizer/tokenizers/move_token.pkl", topk = None, temp = 1):
         self.model = model
         self.model.eval()
 
         self.device = device
 
-        self.tokenizer, self.detokenizer = load_tokenizer(hf_tokenizer, tokenizer_dir)
+        self.tokenizer, self.detokenizer = load_tokenizer(tok_type, tokenizer_path)
 
         self.k = topk
         self.temperature = temp
         self.max_move_size = max_move_size
-        self.char = not hf_tokenizer
 
     def play_moves(
         self, game_states: List[GameState]
@@ -69,7 +68,7 @@ class GPTPlayer(object):
         game_states = red_game_states
         games = red_games            
 
-        idx_moves = self.model.module.generate_moves(games, device = self.device, max_move_size = self.max_move_size, overwrite_spaces = self.char, temperature = self.temperature, top_k = self.k)
+        idx_moves = self.model.module.generate_moves(games, device = self.device, max_move_size = self.max_move_size, overwrite_spaces = True, temperature = self.temperature, top_k = self.k)
         str_moves = self.detokenizer(idx_moves)
         if self.device == "cuda:0":
             print("Str Moves:", str_moves)
@@ -81,6 +80,7 @@ class GPTPlayer(object):
                     print("Game resigned.")
                 game_state.resign()
             else:
+                #TODO: Move parsing shouldn't depend on tokenizer type, but on GameFormat
                 game_state.register_move(move, parse_move = "san" if self.char else "uci")
         
         if self.device == "cuda:0":
