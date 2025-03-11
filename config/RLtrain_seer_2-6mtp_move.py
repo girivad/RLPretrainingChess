@@ -1,15 +1,11 @@
 import os
-from datetime import datetime
-from zoneinfo import ZoneInfo
 
-model_dir = "../../model_vol"
-data_dir = "../../model_vol/data_dir/pretrain"
-
-run_name = "2-6layer_moves_mtp_lichess "
+run_name = "2-6layer_moves_mtp_lichess 2025-03-04 15:49:08.372986-08:00"
 ckpt_num = 600000
 init_from = "pretrain"
+model_dir = "../../model_vol/"
 
-out_dir = os.path.join(model_dir, run_name)
+out_dir = os.path.join(model_dir, run_name, f"ckpt_{ckpt_num}")
 eval_interval = 4000
 eval_iters = 100
 ckpt_interval = 500
@@ -24,13 +20,13 @@ wandb_project = "chessformer"
 wandb_run_name = run_name
 
 # dataset
-dataset = data_dir
 gradient_accumulation_steps = 2
 batch_size = 50
 block_size = 1023  # context of up to 1023 tokens (because dataset block size is 1024)
 
 # tokenizer
-
+tok_type = "move"
+tokenizer_path = "./tokenizer/tokenizers/move_token.pkl"
 
 # baby GPT model :)
 n_slayer = 2

@@ -163,7 +163,7 @@ def sample_games(pi_theta, total_games, bsz, rank, tok_type = "move", tokenizer_
 
     tokenize = None
     if write_out is None:
-        tokenize, _ = load_tokenizer(tok_type, tokenizer_path)
+        tokenize, _, _ = load_tokenizer(tok_type, tokenizer_path)
 
     if rank == 0:
         print("Create Tokenizer")

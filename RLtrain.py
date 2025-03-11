@@ -52,8 +52,8 @@ batch_size = 12 # if gradient_accumulation_steps > 1, this is the micro-batch si
 block_size = 1024
 max_iters = 600000 # total number of training iterations
 # tokenizer
-hf_tokenizer = False
-tokenizer_dir = "./data/lichess_hf_dataset"
+tok_type = "move"
+tokenizer_path = "./tokenizer/tokenizers/move_token.pkl"
 # model
 n_slayer = 0
 n_layer = 12
@@ -126,9 +126,9 @@ ctx = nullcontext() if device_type == 'cpu' else torch.amp.autocast(device_type=
 model_args = dict(n_slayer=n_slayer, n_layer=n_layer, n_head=n_head, n_embd=n_embd, block_size=block_size,
                   bias=bias, vocab_size=None, dropout=dropout) # start with model_args from command line
 
-print(f"Resuming training from {out_dir}")
+print(f"Beginning training from {out_dir}")
 # resume training from a checkpoint.
-ckpt_path = os.path.join(out_dir, 'ckpt.pt')
+ckpt_path = os.path.join(out_dir, f'ckpt.pt')
 checkpoint = torch.load(ckpt_path, map_location=device)
 checkpoint_model_args = checkpoint['model_args']
 # force these config attributes to be equal otherwise we can't even resume training
@@ -163,8 +163,8 @@ if block_size < pi_theta.config.block_size:
 pi_theta.seer = None
 pi_ref.seer = None
 
-pi_theta.to(device)
-pi_ref.to(device)
+pi_theta = pi_theta.to(device)
+pi_ref = pi_ref.to(device)
 
 # initialize a GradScaler. If enabled=False scaler is a no-op
 scaler = torch.amp.GradScaler('cuda', enabled=(dtype == 'float16'))
@@ -223,7 +223,7 @@ while True:
     print("Pre Game Sample:", ddp_local_rank)
 
     with torch.no_grad():
-        G, P, R = sample_games(pi_theta, batch_size, batch_size, ddp_local_rank, hf_tokenizer = hf_tokenizer, tokenizer_dir = tokenizer_dir, self_play = False, sf_time = 0.1)
+        G, P, R = sample_games(pi_theta, batch_size, batch_size, ddp_local_rank, tok_type = tok_type, tokenizer_path = tokenizer_path, self_play = False, sf_time = 0.1)
         P = P[:, 1:] # B x (S - 1)
         G = G.to(device)
         P = P.to(device)
@@ -239,7 +239,7 @@ while True:
     if iter_num % eval_interval == 0:
         
         with torch.no_grad():
-            elo = estimate_elo(pi_theta, batch_size, eval_iters, ddp_local_rank, f"./pgn/{iter_num}", wait, hf_tokenizer = hf_tokenizer, tokenizer_dir = tokenizer_dir, world_size = ddp_world_size)
+            elo = estimate_elo(pi_theta, batch_size, eval_iters, ddp_local_rank, f"./pgn/{iter_num}", wait, tok_type = tok_type, tokenizer_path = tokenizer_path, world_size = ddp_world_size)
 
         print("Elo estimated:", ddp_local_rank)
 
@@ -262,7 +262,7 @@ while True:
                         'config': config,
                         "elo": elo
                     }
-                    ckpt_dir = os.path.join(out_dir, f"ckpt_{iter_num}")
+                    ckpt_dir = os.path.join(out_dir, f"RLckpt_{iter_num}")
                     if not os.path.isdir(ckpt_dir):
                         os.mkdir(ckpt_dir)
                     print(f"saving checkpoint to {ckpt_dir}")
