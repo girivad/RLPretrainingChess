@@ -3,7 +3,7 @@ pgn_file=$1
 echo "readpgn ${pgn_file}
 elo
     mm
-    ratings > ratings
+    ratings >ratings
     x
 x
 

@@ -180,7 +180,7 @@ def sample_games(pi_theta, total_games, bsz, rank, tok_type = "move", tokenizer_
         G = G.type(torch.long)
         return G, P, R
 
-def parse_elo(ratings_file, player_name):
+def parse_elo(ratings_file, target_player_name):
     if not os.path.exists(ratings_file):
         return None, None, None
 
@@ -192,19 +192,17 @@ def parse_elo(ratings_file, player_name):
         player_rating = int(player_line.split()[2])
         player_up_bd = player_rating + int(player_line.split()[3])
         player_lw_bd = player_rating - int(player_line.split()[4])
-        
-        print("Player:", player_name, player_rating, player_up_bd, player_lw_bd)
 
-        if player_name == player_name:
+        if player_name == target_player_name:
             return (player_rating, player_up_bd, player_lw_bd)
 
     return None, None, None
 
 def calc_elo(pgn_file):
-    subprocess.run(["bash", "prepare_ratings_script.sh", pgn_file])
+    subprocess.run(["bash", "prepare_ratings_script.sh", pgn_file], capture_output = True)
     if not os.path.exists("./bayeselo_ratings_script"):
         raise Exception("Failed to prepare ratings script.")
-    subprocess.run(["../BayesianElo/src/bayeselo", "< bayeselo_ratings_script"])
+    subprocess.run("../BayesianElo/src/bayeselo < bayeselo_ratings_script", shell = True, capture_output = True)
     elo, lw_bd, up_bd = parse_elo("ratings", "GPTPlayer")
     if elo is None:
         raise Exception("Failed to parse GPTPlayer from the ratings.")
