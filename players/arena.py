@@ -4,6 +4,7 @@ from players.players import GPTPlayer, StockfishPlayer
 from players.game_utils import GameState
 from tokenizer.scripts.tokenizer import load_tokenizer
 from time import time
+import subprocess
 
 STREAM_SIZE = 1024 ** 3
 
@@ -179,9 +180,36 @@ def sample_games(pi_theta, total_games, bsz, rank, tok_type = "move", tokenizer_
         G = G.type(torch.long)
         return G, P, R
 
+def parse_elo(ratings_file, player_name):
+    if not os.path.exists(ratings_file):
+        return None, None, None
+
+    with open(ratings_file, "r") as r:
+        player_lines = r.readlines()[1:]
+
+    for player_line in player_lines:
+        player_name = player_line.split()[1]
+        player_rating = int(player_line.split()[2])
+        player_up_bd = player_rating + int(player_line.split()[3])
+        player_lw_bd = player_rating - int(player_line.split()[4])
+        
+        print("Player:", player_name, player_rating, player_up_bd, player_lw_bd)
+
+        if player_name == player_name:
+            return (player_rating, player_up_bd, player_lw_bd)
+
+    return None, None, None
+
 def calc_elo(pgn_file):
-    print("Dummy Elo")
-    return 1250
+    subprocess.run(["bash", "prepare_ratings_script.sh", pgn_file])
+    if not os.path.exists("./bayeselo_ratings_script"):
+        raise Exception("Failed to prepare ratings script.")
+    subprocess.run(["../BayesianElo/src/bayeselo", "< bayeselo_ratings_script"])
+    elo, lw_bd, up_bd = parse_elo("ratings", "GPTPlayer")
+    if elo is None:
+        raise Exception("Failed to parse GPTPlayer from the ratings.")
+    os.remove("ratings")
+    return elo, lw_bd, up_bd
 
 def estimate_elo(pi_theta, eval_bsz, eval_games, rank, write_out, wait, tok_type = "move", tokenizer_path = "./tokenizer/tokenizers/move_token.pkl", world_size = None):
     sample_games(pi_theta, eval_games, eval_bsz, rank, tok_type, tokenizer_path, write_out = write_out)
