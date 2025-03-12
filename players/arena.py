@@ -128,27 +128,27 @@ def sample_games(pi_theta, total_games, bsz, rank, tok_type = "move", tokenizer_
     else:
         p1 = StockfishPlayer(sf_time)
 
-    if rank == 0:
-        print("Players Created")
+    # if rank == 0:
+    #     print("Players Created")
 
     tokenize = None
     if write_out is None:
         tokenize, _, _ = load_tokenizer(tok_type, tokenizer_path)
 
-    if rank == 0:
-        print("Create Tokenizer")
+    # if rank == 0:
+    #     print("Create Tokenizer")
 
     arena = Arena(p0, p1, bsz, rank, tokenize)
-    if rank == 0:
-        print("Create Arena")
+    # if rank == 0:
+    #     print("Create Arena")
     if write_out:
         arena.run_games(total_games, write_out)
-        if rank == 0:
-            print("Have Run Games")
+        # if rank == 0:
+        #     print("Have Run Games")
     else:
         G, P, R = arena.run_games(total_games)
-        if rank == 0:
-            print("Have Run Games")
+        # if rank == 0:
+        #     print("Have Run Games")
         G = G.type(torch.long)
 
     arena.close()
@@ -191,7 +191,7 @@ def estimate_elo(pi_theta, eval_bsz, eval_games, rank, write_out, wait, tok_type
     if rank == 0:
         assert world_size is not None
         collate_games([write_out + str(r) for r in range(world_size)], write_out)
-        print("Games Collated")
+        # print("Games Collated")
 
         return calc_elo(write_out)
     

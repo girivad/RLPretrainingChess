@@ -78,8 +78,8 @@ class GPTPlayer(object):
         
         for game_state, move in zip(game_states, moves):
             if ";" in move:
-                if self.device == "cuda:0":
-                    print("Game resigned.")
+                # if self.device == "cuda:0":
+                #     print("Game resigned.")
                 game_state.resign()
             else:
                 #TODO: Move parsing shouldn't depend on tokenizer type, but on GameFormat

@@ -220,7 +220,6 @@ while True:
     # G: Indices of moves played in simulated games; B x S
     # P: Player Name/Type, -1 for black GPT Player, +1 for white GPT Player, 0 for Stockfish Player/Padding Tokens; B x S
     # R: Game Rewards, reward is -1 for black victory, +1 for white victory, 0 for draw; B x 0.
-    print("Pre Game Sample:", ddp_local_rank)
 
     with torch.no_grad():
         G, P, R = sample_games(pi_theta, batch_size, batch_size, ddp_local_rank, tok_type = tok_type, tokenizer_path = tokenizer_path, self_play = False, sf_time = 0.1)
@@ -229,19 +228,15 @@ while True:
         P = P.to(device)
         R = R.to(device)
     
-    # print("Games Sampled:", ddp_local_rank)
     # determine and set the learning rate for this iteration
     lr = learning_rate
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
 
     # evaluate the elo on further games and write checkpoints
-    if iter_num % eval_interval == 0:
-        
+    if iter_num % eval_interval == 0:      
         with torch.no_grad():
             elo, lw_bd, up_bd = estimate_elo(pi_theta, batch_size, eval_iters, ddp_local_rank, f"./pgn/{iter_num}", wait, tok_type = tok_type, tokenizer_path = tokenizer_path, world_size = ddp_world_size)
-
-        print("Elo estimated:", elo, lw_bd, up_bd)
 
         if master_process:
             print(f"step {iter_num}: Elo rating {elo:.4f}")
