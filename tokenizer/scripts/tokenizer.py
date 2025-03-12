@@ -89,7 +89,7 @@ def load_tokenizer(tok_type, tokenizer_path):
         tokenizer = AutoTokenizer.from_pretrained(tokenizer_path, local_files_only = True)
         V = len(tokenizer.vocab)
         dtype = get_dtype(V)
-        tokenize = lambda ex, batch = False: hf_tokenize(tokenizer, ex, dtype, batch = batch)
+        tokenize = lambda ex, batch = False, pgn = False: hf_tokenize(tokenizer, ex, dtype, batch = batch)
         detokenize = lambda idx: tokenizer.batch_decode(idx)
 
     else:
@@ -99,9 +99,9 @@ def load_tokenizer(tok_type, tokenizer_path):
         dtype = get_dtype(V)
 
         if tok_type == "char":
-            tokenize = lambda ex, batch = False, return_type = "np": char_tokenize(preproc_game(ex), stoi, dtype, return_type = return_type) if not batch else [char_tokenize(x, stoi, dtype, return_type = return_type) for x in preproc_game(ex)]
+            tokenize = lambda ex, batch = False, return_type = "np", pgn = False: char_tokenize(preproc_game(ex), stoi, dtype, return_type = return_type) if not batch else [char_tokenize(x, stoi, dtype, return_type = return_type) for x in preproc_game(ex)]
         elif tok_type == "move":
-            tokenize = lambda ex, batch = False, return_type = "np": move_tokenize(preproc_game(ex), stoi, dtype, return_type = return_type) if not batch else [move_tokenize(x, stoi, dtype, return_type = return_type) for x in preproc_game(ex)]
+            tokenize = lambda ex, batch = False, return_type = "np", pgn = True: move_tokenize(preproc_game(ex), stoi, dtype, return_type = return_type, pgn = pgn) if not batch else [move_tokenize(x, stoi, dtype, return_type = return_type, pgn = pgn) for x in preproc_game(ex)]
         detokenize = lambda idx, batch = False: map_detokenize(idx, itos, batch)
 
     return tokenize, detokenize, dtype

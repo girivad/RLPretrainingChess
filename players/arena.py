@@ -3,14 +3,14 @@ from typing import List
 from players.players import GPTPlayer, StockfishPlayer
 from players.game_utils import GameState
 from tokenizer.scripts.tokenizer import load_tokenizer
-from time import time
+import numpy as np
 import subprocess
 
 STREAM_SIZE = 1024 ** 3
 
 def update_gpr(g, G, p, P, r, R, tokenize):
-    g = tokenize(g, batch = True)
-    g = [list(g_s) for g_s in g] # TODO: g is a list of np arrays.
+    g = tokenize(g, batch = True, pgn = False)
+    g = [list(g_s.astype(np.int32)) for g_s in g] # TODO: g is a list of np arrays.
     p = sum([[ptype] * len(tokens) for ptype, tokens in zip(p, g)], [])
     g = sum(g, [])
     
@@ -51,68 +51,37 @@ class Arena(object):
         games_played = 0
         game_states = [GameState(idx, self.adjudicator, [type(self.player0).__name__, type(self.player1).__name__]) for idx in range(self.eval_bsz)]
         base_game_id = self.eval_bsz
-        # if self.local_rank == 1:
-        #     print("Player Types:", type(self.player0).__name__, type(self.player1).__name__)
 
         move_num = 0
 
         while games_played < total_games:
             while len(game_states) > 0:
-                # if self.local_rank == 1:
-                #     print("Move Number:", move_num)
                 move_num += 1
                 p0_games = [game_state for game_state in game_states if game_state.turn == 0]
                 p1_games = [game_state for game_state in game_states if game_state.turn == 1]
 
-                before = time()
                 if len(p0_games) > 0:
                     self.player0.play(p0_games)
-                # if self.local_rank == 1:
-                #     print("P0 Plays in:", time() - before)
-                before = time()
                 if len(p1_games) > 0:
                     self.player1.play(p1_games)
-                # if self.local_rank == 1:
-                #     print("P1 Plays in:", time() - before)
                 
                 reduced_game_states = []
                 for game_state in game_states:
                     if not game_state.is_complete():
-                        # if self.local_rank == 1:
-                        #     print("Game State Completed.")
                         reduced_game_states.append(game_state)
                         continue
                     if write_out is not None:
-                        # if self.local_rank == 0:
-                        #     print("Write Out:", write_out)
                         game_state.write_outcome(write_out)
                     else:
-                        # if self.local_rank == 1:
-                        #     print("get_gpr")
                         g, p, r = game_state.get_gpr()
-                        # if self.local_rank == 1:
-                        #     print("got gpr")
                         G, P, R = update_gpr(g, G, p, P, r, R, self.tokenize)
-                        # if self.local_rank == 1:
-                        #     print("update gpr")
 
                     games_played += 1
-                # if self.local_rank == 1:
-                #     print("Completed Game Evaluations")
                 game_states = reduced_game_states
-                # if self.local_rank == 1:
-                #     print("Getting the number of new games.")
                 new_games = min(self.eval_bsz - len(game_states), total_games - (games_played + len(game_states))) # Min(Bsz - reduced_games, total_games - (games_played + reduced_games))
-                # if self.local_rank == 1:
-                #     print(type(base_game_id), type(new_games))
                 game_states += [GameState(base_game_id + game_id, self.adjudicator, [type(self.player0).__name__, type(self.player1).__name__]) for game_id in range(new_games)]
                 base_game_id += new_games
-                # if self.local_rank == 1:
-                #     print("Games Played:", games_played)
-            # if self.local_rank == 1:
-            #     print("Move Batch Terminated")
-        # if self.local_rank == 1:
-        #     print("Total Games Completed")
+
         if write_out:
             write_out.close()
         else:

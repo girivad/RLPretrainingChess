@@ -63,36 +63,31 @@ class GameState(object):
 
     def register_move(self, move: str, parse_move: str = None):
         move_failed = False
-        # print(f"register move: \'{move}\'")
+
         if parse_move is not None:
             try:
                 if parse_move == "san":
                     move = self.board.parse_san(move)
                 elif parse_move == "uci":
                     move = self.board.parse_uci(move)
-                # print("Parsed.")
             except IllegalMoveError:
-                # print("IlME")
                 self.termination = f"Illegal Move: \'{move}\' given context: \'{self.state}\'; Player: \'{self.turn}\'"
                 move_failed = True
             except InvalidMoveError:
-                # print("InME")
                 self.termination = f"Invalid Move: \'{move}\' given context: \'{self.state}\'; Player: \'{self.turn}\'"
                 move_failed = True
             except AmbiguousMoveError:
-                # print("AME")
                 self.termination = f"Ambiguous Move: \'{move}\' given context: \'{self.state}\'; Player: \'{self.turn}\'"
                 move_failed = True
             except Exception as err:
                 print("Error:", err)
                 move_failed = True
             if not bool(move):
-                # print("Null move")
                 self.termination = f"Parsed Null Move."
                 move_failed = True
 
         self.state += str(move) + " "
-        print("State:", self.state)
+        # print("State:", self.state)
 
         self.G.append(str(move) + " ")
         player_type = (-1 ** (1 * (self.turn != self.w_player_id))) if "GPT" in self.players[self.turn] else 0

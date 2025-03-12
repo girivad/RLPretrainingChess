@@ -229,7 +229,7 @@ while True:
         P = P.to(device)
         R = R.to(device)
     
-    print("Games Sampled:", ddp_local_rank)
+    # print("Games Sampled:", ddp_local_rank)
     # determine and set the learning rate for this iteration
     lr = learning_rate
     for param_group in optimizer.param_groups:
