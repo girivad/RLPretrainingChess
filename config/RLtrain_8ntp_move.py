@@ -1,17 +1,15 @@
 import os
-from datetime import datetime
-from zoneinfo import ZoneInfo
 
-model_dir = "../../model_vol"
-data_dir = "../../model_vol/data_dir/pretrain"
+pretrain_run_name = "ntp_lichess 2025-03-05 19:39:30.836936-08:00"
+ckpt_num = 600000
+run_name = f"RL 8layer_moves_ntp_lichess {ckpt_num}"
+init_from = "pretrain"
+model_dir = "../../model_vol/"
 
-timestamp = datetime.now(ZoneInfo("America/Los_Angeles"))
-run_name = "ntp_lichess " + str(timestamp)
-
-out_dir = os.path.join(model_dir, run_name)
-eval_interval = 4000
-eval_iters = 100
-ckpt_interval = 50000
+out_dir = os.path.join(model_dir, pretrain_run_name, f"ckpt_{ckpt_num}")
+eval_interval = 500
+eval_iters = 500
+ckpt_interval = 500
 # I'm not sure what's going on, but when log_interval == 100, the time per iter is inaccurate and much longer than it should be
 # when running on multiple GPUs. TODO: investigate
 log_interval = 50  # don't print too too often
@@ -22,28 +20,32 @@ wandb_log = True
 wandb_project = "chessformer"
 wandb_run_name = run_name
 
-dataset = data_dir
+# dataset
 gradient_accumulation_steps = 2
 batch_size = 50
 block_size = 1023  # context of up to 1023 tokens (because dataset block size is 1024)
+
+# tokenizer
+tok_type = "move"
+tokenizer_path = "./tokenizer/tokenizers/move_token.pkl"
 
 # baby GPT model :)
 n_slayer = 0
 n_layer = 8
 n_head = 8
 n_embd = 512
-dropout = 0.0 # for pretraining 0 is good, for finetuning try 0.1+
+dropout = 0.1 # for pretraining 0 is good, for finetuning try 0.1+
 bias = False # do we use bias inside LayerNorm and Linear layers?
 vocab_size = 1970
 
 # aux losses
 aux_seer_loss = False
 
-learning_rate = 3e-4
-max_iters = 600000
-lr_decay_iters = max_iters  # make equal to max_iters usually
-min_lr = 3e-5  # learning_rate / 10 usually
+learning_rate = 1e-6
+max_iters = 10000
+min_lr = 1e-6  # no lr decay
 beta2 = 0.95  # make a bit bigger because number of tokens per iter is small
+clip_eps = 0.04
 
-warmup_iters = 2000  # not super necessary potentially
+warmup_iters = 0
 compile = True

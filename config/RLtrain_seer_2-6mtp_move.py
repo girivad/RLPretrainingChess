@@ -1,13 +1,14 @@
 import os
 
-run_name = "2-6layer_moves_mtp_lichess 2025-03-04 15:49:08.372986-08:00"
+pretrain_run_name = "2-6layer_moves_mtp_lichess 2025-03-04 15:49:08.372986-08:00"
 ckpt_num = 600000
+run_name = f"RL 2-6layer_moves_mtp_lichess {ckpt_num}"
 init_from = "pretrain"
 model_dir = "../../model_vol/"
 
-out_dir = os.path.join(model_dir, run_name, f"ckpt_{ckpt_num}")
-eval_interval = 4000
-eval_iters = 100
+out_dir = os.path.join(model_dir, pretrain_run_name, f"ckpt_{ckpt_num}")
+eval_interval = 500
+eval_iters = 500
 ckpt_interval = 500
 # I'm not sure what's going on, but when log_interval == 100, the time per iter is inaccurate and much longer than it should be
 # when running on multiple GPUs. TODO: investigate
@@ -40,11 +41,11 @@ vocab_size = 1970
 # aux losses
 aux_seer_loss = False
 
-learning_rate = 3e-4
+learning_rate = 1e-6
 max_iters = 10000
-min_lr = 3e-4  # no lr decay
+min_lr = 1e-6  # no lr decay
 beta2 = 0.95  # make a bit bigger because number of tokens per iter is small
-clip_eps = 0.2
+clip_eps = 0.04
 
 warmup_iters = 0
 compile = True
