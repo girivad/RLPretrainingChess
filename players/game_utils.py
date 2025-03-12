@@ -134,8 +134,8 @@ class GameState(object):
         assert b_rating is not None
         assert self.outcome is not None
 
-        game = '''[White \"{} {}\"]\n[Black \"{} {}\"]\n[Result \"{}\"]\n{}\n'''.format(
-            w_player, w_rating, b_player, b_rating, self.outcome, self.outcome
+        game = '''[White \"{}\"]\n[Black \"{}\"]\n[Result \"{}\"]\n{}\n'''.format(
+            w_player, b_player, self.outcome, self.outcome
         )
 
         pgn_file.write(game)

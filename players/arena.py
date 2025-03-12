@@ -1,4 +1,5 @@
 import chess, torch, os
+import chess.engine
 from typing import List
 from players.players import GPTPlayer, StockfishPlayer
 from players.game_utils import GameState
@@ -39,7 +40,7 @@ class Arena(object):
         self.local_rank = rank
 
         self.tokenize = tokenize
-        self.adjudicator = chess.engine.SimpleEngine.popen_uci("./stockfish_exec")
+        self.adjudicator = chess.engine.SimpleEngine.popen_uci("./stockfish_exec", timeout = None)
     
     def run_games(self, total_games: int, write_out = None):
         if write_out:
@@ -146,7 +147,13 @@ def sample_games(pi_theta, total_games, bsz, rank, tok_type = "move", tokenizer_
             print("Have Run Games")
     else:
         G, P, R = arena.run_games(total_games)
+        if rank == 0:
+            print("Have Run Games")
         G = G.type(torch.long)
+
+    arena.close()
+    
+    if not write_out:
         return G, P, R
 
 def parse_elo(ratings_file, target_player_name):
@@ -171,7 +178,7 @@ def calc_elo(pgn_file):
     subprocess.run(["bash", "prepare_ratings_script.sh", pgn_file], capture_output = True)
     if not os.path.exists("./bayeselo_ratings_script"):
         raise Exception("Failed to prepare ratings script.")
-    subprocess.run("../BayesianElo/src/bayeselo < bayeselo_ratings_script", shell = True, capture_output = True)
+    subprocess.run("./BayesianElo/src/bayeselo < bayeselo_ratings_script", shell = True, capture_output = True)
     elo, lw_bd, up_bd = parse_elo("ratings", "GPTPlayer")
     if elo is None:
         raise Exception("Failed to parse GPTPlayer from the ratings.")

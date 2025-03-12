@@ -11,7 +11,7 @@ class StockfishPlayer(object):
     def __init__(self, play_time: float):
         self._play_time = play_time
         stockfish_path = "./stockfish_exec"
-        self._engine = chess.engine.SimpleEngine.popen_uci(stockfish_path)
+        self._engine = chess.engine.SimpleEngine.popen_uci(stockfish_path, timeout = None)
 
     def play_move(
         self, game_state: GameState
