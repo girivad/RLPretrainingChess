@@ -170,7 +170,7 @@ def parse_elo(ratings_file, target_player_name):
         player_lw_bd = player_rating - int(player_line.split()[4])
 
         if player_name == target_player_name:
-            return (player_rating, player_up_bd, player_lw_bd)
+            return (player_rating, player_lw_bd, player_up_bd)
 
     return None, None, None
 
@@ -194,3 +194,5 @@ def estimate_elo(pi_theta, eval_bsz, eval_games, rank, write_out, wait, tok_type
         print("Games Collated")
 
         return calc_elo(write_out)
+    
+    return None, None, None

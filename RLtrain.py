@@ -239,9 +239,9 @@ while True:
     if iter_num % eval_interval == 0:
         
         with torch.no_grad():
-            elo = estimate_elo(pi_theta, batch_size, eval_iters, ddp_local_rank, f"./pgn/{iter_num}", wait, tok_type = tok_type, tokenizer_path = tokenizer_path, world_size = ddp_world_size)
+            elo, lw_bd, up_bd = estimate_elo(pi_theta, batch_size, eval_iters, ddp_local_rank, f"./pgn/{iter_num}", wait, tok_type = tok_type, tokenizer_path = tokenizer_path, world_size = ddp_world_size)
 
-        print("Elo estimated:", ddp_local_rank)
+        print("Elo estimated:", elo, lw_bd, up_bd)
 
         if master_process:
             print(f"step {iter_num}: Elo rating {elo:.4f}")
@@ -283,13 +283,13 @@ while True:
             pi_theta.require_backward_grad_sync = (micro_step == gradient_accumulation_steps - 1)
         with ctx:
             pi_t, _ = pi_theta(G[:, :-1], evaluate = True, batch_inf = True) # B x (S - 1) x V
-            pi_t = smooth(F.softmax(pi_t))
+            pi_t = smooth(F.softmax(pi_t, dim = -1))
             # Index Select Workaround: https://github.com/pytorch/pytorch/issues/30574
             pi_t_prbs = torch.gather(pi_t, 2, G[:, 1:].unsqueeze(2)).squeeze(2) # B x (S - 1)
 
             with torch.no_grad():
                 pi_r, _ = pi_ref(G[:, :-1], evaluate = True, batch_inf = True)
-                pi_r = smooth(F.softmax(pi_r))
+                pi_r = smooth(F.softmax(pi_r, dim = -1))
                 pi_r_prbs = torch.gather(pi_r, 2, G[:, 1:].unsqueeze(2)).squeeze(2) # B x (S - 1)
             
             prb_ratio = pi_t_prbs / pi_t_prbs.detach().clone() # B x (S - 1)
