@@ -1,11 +1,10 @@
 import random, chess, torch, os
 from chess import IllegalMoveError, InvalidMoveError, AmbiguousMoveError
 
-init_elo = 1250
 STREAM_SIZE = 1024 ** 3
 
 class GameState(object):
-    def __init__(self, game_id, sf_engine, players = ["Stockfish", "GPT"]):
+    def __init__(self, game_id, sf_engine, players = ["Stockfish", "GPT"], ratings = None):
         self.game_id = game_id
         
         self.board = chess.Board()
@@ -20,15 +19,23 @@ class GameState(object):
         self.sf_engine = sf_engine
         
         self.players = players
-        self.ratings = [init_elo] * len(players)
-        self.sf_rating = random.randint(1360, 2840)
-        for player_idx in range(len(self.players)):
-            if "Stockfish" not in self.players[player_idx]:
-                continue
-            assert self.sf_rating is not None
-            self.players[player_idx] = "Stockfish-{}".format(self.sf_rating)
-            self.ratings[player_idx] = self.sf_rating
+
+        if ratings is not None:
+            assert len(ratings) == len(players), f"Provided {len(ratings)} ratings for {len(players)} players."
+            self.ratings = ratings        
+            for p_idx in range(len(self.players)):
+                if self.ratings[p_idx] is None:
+                    continue
+
+                self.players[p_idx] = self.players[p_idx] + "-" + str(self.ratings[p_idx])
     
+    @staticmethod
+    def init_terminal_game(outcome, w_player_id, p_names = ["Stockfish", "GPT"], ratings = None):
+        game_state = GameState(-1, None, p_names, ratings)
+        game_state.outcome = outcome
+        game_state.w_player_id = w_player_id
+        return game_state
+
     def decide(self):
         # Decide who has the advantage in the game and adjudicate the winner
         # Based on https://github.com/adamkarvonen/chess_llm_interpretability/blob/0f61e667fb8a809deda29e5db6c113a0a88f9998/chess_utils.py#L69
@@ -87,7 +94,6 @@ class GameState(object):
                 move_failed = True
 
         self.state += str(move) + " "
-        # print("State:", self.state)
 
         self.G.append(str(move) + " ")
         player_type = (-1 ** (1 * (self.turn != self.w_player_id))) if "GPT" in self.players[self.turn] else 0
@@ -95,16 +101,10 @@ class GameState(object):
         assert len(self.G) == len(self.P)
 
         if move_failed:
-            # print("Resign because move failed")
             self.resign()
             return
 
         self.board.push(move)
-
-        # if len(self.state) >= 1015: # TODO: Verify that player-level context length monitoring is sufficient
-        #     self.decide()
-        #     return
-
         outcome = self.board.outcome()
 
         if outcome is None:
@@ -125,13 +125,9 @@ class GameState(object):
 
         w_player = self.players[self.w_player_id]
         b_player = self.players[1 - self.w_player_id]
-        w_rating = self.ratings[self.w_player_id]
-        b_rating = self.ratings[1 - self.w_player_id]
 
         assert w_player is not None
-        assert w_rating is not None
         assert b_player is not None
-        assert b_rating is not None
         assert self.outcome is not None
 
         game = '''[White \"{}\"]\n[Black \"{}\"]\n[Result \"{}\"]\n{}\n'''.format(

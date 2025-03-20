@@ -1,4 +1,4 @@
-import chess, torch, os
+import chess, torch, os, random
 import chess.engine
 from typing import List
 from players.players import GPTPlayer, StockfishPlayer
@@ -33,24 +33,30 @@ def update_gpr(g, G, p, P, r, R, tokenize):
     return G, P, R
 
 class Arena(object):
-    def __init__(self, player0: StockfishPlayer | GPTPlayer, player1: StockfishPlayer | GPTPlayer, eval_bsz, rank, tokenize = None):
+    def __init__(self, player0: StockfishPlayer | GPTPlayer, player1: StockfishPlayer | GPTPlayer, eval_bsz, rank, tokenize = None, init_games: List[GameState] = []):
         self.player0 = player0
         self.player1 = player1
+        self.p_names = [type(self.player0).__name__, type(self.player1).__name__]
         self.eval_bsz = eval_bsz
         self.local_rank = rank
 
         self.tokenize = tokenize
         self.adjudicator = chess.engine.SimpleEngine.popen_uci("./stockfish_exec", timeout = None)
-    
+
+        self.init_games = init_games
+
     def run_games(self, total_games: int, write_out = None):
         if write_out:
             write_out = open(write_out + str(self.local_rank), "w")
+            for game in self.init_games:
+                game.write_outcome(write_out)
         else:
+            assert len(self.init_games) == 0, f"Given {len(self.init_games)} initialization games in data collection phase."
             G = None # B x S
             P = None # B x (S - 1)
             R = [] # B x 0 
         games_played = 0
-        game_states = [GameState(idx, self.adjudicator, [type(self.player0).__name__, type(self.player1).__name__]) for idx in range(self.eval_bsz)]
+        game_states = [GameState(idx, self.adjudicator, self.p_names, [random.choice(range(1350, 2850, 100)) if "Stockfish" in p_name else None for p_name in self.p_names]) for idx in range(self.eval_bsz)]
         base_game_id = self.eval_bsz
 
         move_num = 0
@@ -80,7 +86,7 @@ class Arena(object):
                     games_played += 1
                 game_states = reduced_game_states
                 new_games = min(self.eval_bsz - len(game_states), total_games - (games_played + len(game_states))) # Min(Bsz - reduced_games, total_games - (games_played + reduced_games))
-                game_states += [GameState(base_game_id + game_id, self.adjudicator, [type(self.player0).__name__, type(self.player1).__name__]) for game_id in range(new_games)]
+                game_states += [GameState(base_game_id + game_id, self.adjudicator, self.p_names, [random.choice(range(1350, 2850, 100)) if "Stockfish" in p_name else None for p_name in self.p_names]) for game_id in range(new_games)]
                 base_game_id += new_games
 
         if write_out:
@@ -119,36 +125,54 @@ def collate_games(files: List[str], write_out: str):
 MMS = {
     "char": 5,
     "move": 2
-}
+} # Max Move Size in Tokens
 
-def sample_games(pi_theta, total_games, bsz, rank, tok_type = "move", tokenizer_path = "./tokenizer/tokenizers/move_token.pkl", self_play = False, write_out = None, sf_time = 0.1):
+def sample_sf_games_fast(ratings, games_per_pair = 20):
+    # MLEs of Draw/Advantage
+    e_adv = 32.8
+    e_draw = 97.3
+    
+    # Assume some number of games to sample
+    ratings_games = len(ratings) * (len(ratings) - 1) * games_per_pair
+
+    elos = np.array([random.sample(ratings, 2) for _ in range(ratings_games)])
+    assert not np.any(elos[:, 0] == elos[:, 1])
+    d_w = elos[:, 1] - elos[:, 0] - e_adv + e_draw
+    d_b = elos[:, 0] - elos[:, 1] + e_adv + e_draw
+
+    p_w = 1 / (1 + 10 ** (d_w / 400))
+    assert np.all(p_w > 0)
+    p_b = 1 / (1 + 10 ** (d_b / 400))
+    assert np.all(p_b > 0)
+    p_d = 1 - p_w - p_b
+    assert np.all(p_d > 0), (np.sum(p_d <= 0), p_w[p_d <= 0], p_b[p_d <= 0])
+    outcomes = [str(np.random.choice(["1-0", "1/2-1/2", "0-1"], p = [p_w[game], p_d[game], p_b[game]])) for game in range(ratings_games)]
+
+    return [GameState.init_terminal_game(outcome, 0, ["Stockfish", "Stockfish"], [w_elo, b_elo]) for w_elo, b_elo, outcome in zip(elos[:, 0], elos[:, 1], outcomes)]
+
+def sample_games(pi_theta, total_games, bsz, rank, tok_type = "move", tokenizer_path = "./tokenizer/tokenizers/move_token.pkl", self_play = False, write_out = None, sf_rating_games = "fast", sf_time = 0.1):
+
+    synthetic_games = None
+    if sf_rating_games == "fast":
+        synthetic_games = sample_sf_games_fast(range(1350, 2850, 100))
+
     p0 = GPTPlayer(pi_theta, f"cuda:{rank}", max_move_size = MMS[tok_type], tok_type = tok_type, tokenizer_path = tokenizer_path)
+
     if self_play:
         p1 = GPTPlayer(pi_theta, f"cuda:{rank}", max_move_size = MMS[tok_type], tok_type = tok_type, tokenizer_path = tokenizer_path)
     else:
         p1 = StockfishPlayer(sf_time)
 
-    # if rank == 0:
-    #     print("Players Created")
-
     tokenize = None
     if write_out is None:
         tokenize, _, _ = load_tokenizer(tok_type, tokenizer_path)
 
-    # if rank == 0:
-    #     print("Create Tokenizer")
+    arena = Arena(p0, p1, bsz, rank, tokenize, init_games = synthetic_games)
 
-    arena = Arena(p0, p1, bsz, rank, tokenize)
-    # if rank == 0:
-    #     print("Create Arena")
     if write_out:
         arena.run_games(total_games, write_out)
-        # if rank == 0:
-        #     print("Have Run Games")
     else:
         G, P, R = arena.run_games(total_games)
-        # if rank == 0:
-        #     print("Have Run Games")
         G = G.type(torch.long)
 
     arena.close()
