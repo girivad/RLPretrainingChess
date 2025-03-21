@@ -62,8 +62,11 @@ n_embd = 768
 dropout = 0.0 # for pretraining 0 is good, for finetuning try 0.1+
 bias = False # do we use bias inside LayerNorm and Linear layers?
 # RL
-baseline = None
+baseline = "GRPO"
 clip_eps = 0.2
+use_opening_book = True
+group_size = 25 #TODO: Set in configuration files
+self_play = False
 # adamw optimizer
 beta = 0.9
 learning_rate = 6e-4 # max learning rate
@@ -222,11 +225,25 @@ while True:
     # R: Game Rewards, reward is -1 for black victory, +1 for white victory, 0 for draw; B x 0.
 
     with torch.no_grad():
-        G, P, R = sample_games(pi_theta, batch_size, batch_size, ddp_local_rank, tok_type = tok_type, tokenizer_path = tokenizer_path, self_play = False, sf_time = 0.1)
+        G, P, R = sample_games(
+            pi_theta, batch_size, batch_size, ddp_local_rank, tok_type = tok_type, 
+            tokenizer_path = tokenizer_path, self_play = self_play, sf_time = 0.1,
+            use_opening_book = use_opening_book,
+            group_size = group_size if baseline == "GRPO" else 1
+        )
         P = P[:, 1:] # B x (S - 1)
         G = G.to(device)
         P = P.to(device)
         R = R.to(device)
+
+        if baseline == "GRPO":
+            mean_r = torch.mean(R.view(-1, group_size), dim = 1)
+            std_r = torch.std(R.view(-1, group_size), dim = 1)
+            mean_r = mean_r.repeat_interleave(group_size)
+            std_r = std_r.repeat_interleave(group_size)
+
+            R = torch.where(std_r != 0, (R - mean_r) / std_r, R)
+            assert not torch.any(R.isnan()), R            
     
     # determine and set the learning rate for this iteration
     lr = learning_rate
@@ -236,10 +253,13 @@ while True:
     # evaluate the elo on further games and write checkpoints
     if iter_num % eval_interval == 0:      
         with torch.no_grad():
-            elo, lw_bd, up_bd = estimate_elo(pi_theta, batch_size, eval_iters, ddp_local_rank, f"./pgn/{iter_num}", wait, tok_type = tok_type, tokenizer_path = tokenizer_path, world_size = ddp_world_size)
+            elo, lw_bd, up_bd = estimate_elo(
+                pi_theta, batch_size, eval_iters, ddp_local_rank, f"./pgn/{iter_num}", 
+                wait, tok_type = tok_type, tokenizer_path = tokenizer_path, world_size = ddp_world_size
+            )
 
         if master_process:
-            print(f"step {iter_num}: Elo rating {elo:.4f}")
+            print(f"step {iter_num}: Elo rating {lw_bd:.4f} < {elo:.4f} < {up_bd:.4f}")
             if wandb_log:
                 wandb.log({
                     "iter": iter_num,

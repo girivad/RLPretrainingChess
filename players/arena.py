@@ -227,7 +227,7 @@ def calc_elo(pgn_file):
     return elo, lw_bd, up_bd
 
 def estimate_elo(pi_theta, eval_bsz, eval_games, rank, write_out, wait, tok_type = "move", tokenizer_path = "./tokenizer/tokenizers/move_token.pkl", world_size = None):
-    sample_games(pi_theta, eval_games, eval_bsz, rank, tok_type, tokenizer_path, write_out = write_out)
+    sample_games(pi_theta, eval_games, eval_bsz, rank, tok_type, tokenizer_path, write_out = write_out, use_opening_book = True)
     wait()
     if rank == 0:
         assert world_size is not None
