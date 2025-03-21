@@ -30,11 +30,17 @@ class GameState(object):
                 self.players[p_idx] = self.players[p_idx] + "-" + str(self.ratings[p_idx])
 
         if len(opening) > 0:
-            for move_idx, move in enumerate(re.split("(?:(?:[0-9]+\.)|(?:[; ]))", opening)):
+            move_idx = 0
+            for move in re.split("(?:(?:[0-9]+\.)|(?:[; ]))", opening):
+                if len(move) == 0:
+                    continue
+
                 self.register_move(move, parse_move = "pgn")
 
                 if self.is_complete():
                     raise Exception(f"Opening {opening} was invalid, completed the game at move {move_idx}: {move}.")
+                
+                move_idx += 1
     
     @staticmethod
     def init_terminal_game(outcome, w_player_id, p_names = ["Stockfish", "GPT"], ratings = None):
@@ -153,7 +159,7 @@ def get_openings():
                 continue
             if not line.startswith("1."):
                 continue
-            line = line.removesuffix("1/2-1/2").removesuffix("1-0").removesuffix("0-1").strip()
+            line = line.strip().removesuffix("1/2-1/2").removesuffix("1-0").removesuffix("0-1").strip()
             openings.append(line)
 
     print(f"Retrieved {len(openings)} openings.")
