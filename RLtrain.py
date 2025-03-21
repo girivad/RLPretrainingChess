@@ -38,6 +38,8 @@ eval_interval = 2000
 ckpt_interval = 50000
 log_interval = 1
 eval_iters = 200
+hifi_eval_interval = 2000
+hifi_eval_iters = 200
 eval_only = False # if True, script exits right after the first eval
 always_save_checkpoint = True # if True, always save a checkpoint after each eval
 init_from = 'scratch' # 'scratch' or 'resume' or 'gpt2*'
@@ -254,7 +256,7 @@ while True:
     if iter_num % eval_interval == 0:      
         with torch.no_grad():
             elo, lw_bd, up_bd = estimate_elo(
-                pi_theta, batch_size, eval_iters, ddp_local_rank, f"./pgn/{iter_num}", 
+                pi_theta, batch_size, eval_iters if iter_num % hifi_eval_interval != 0 else hifi_eval_iters, ddp_local_rank, f"./pgn/{iter_num}", 
                 wait, tok_type = tok_type, tokenizer_path = tokenizer_path, world_size = ddp_world_size
             )
 
@@ -263,6 +265,8 @@ while True:
             if wandb_log:
                 wandb.log({
                     "iter": iter_num,
+                    "elo_up": up_bd,
+                    "elo_lw": lw_bd,
                     "elo": elo,
                     "lr": lr,
                     "mfu": running_mfu*100, # convert to percentage
@@ -275,7 +279,9 @@ while True:
                         'model_args': model_args,
                         'iter_num': iter_num,
                         'config': config,
-                        "elo": elo
+                        "elo": elo,
+                        "elo_up": up_bd,
+                        "elo_lw": lw_bd
                     }
                     ckpt_dir = os.path.join(out_dir, f"RLckpt_{iter_num}")
                     if not os.path.isdir(ckpt_dir):
