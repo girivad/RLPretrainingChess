@@ -148,5 +148,13 @@ def get_openings():
 
     # Eco Opening Book based on "Grandmaster-level Chess without Search" (https://github.com/google-deepmind/searchless_chess/blob/main/src/tournament.py#L195)
     with open("./openings/eco_openings.pgn", "r") as openings_file:
-        for line in openings_file.readline():
-            
+        for line in openings_file.readlines():
+            if len(line.strip()) == 0 or "[" in line or "]" in line:
+                continue
+            if not line.startswith("1."):
+                continue
+            line = line.removesuffix("1/2-1/2").removesuffix("1-0").removesuffix("0-1").strip()
+            openings.append(line)
+
+    print(f"Retrieved {len(openings)} openings.")
+    return openings
