@@ -1,17 +1,17 @@
-import random, chess, torch, os
+import random, chess, re
 from chess import IllegalMoveError, InvalidMoveError, AmbiguousMoveError
 
 STREAM_SIZE = 1024 ** 3
 
 class GameState(object):
-    def __init__(self, game_id, sf_engine, players = ["Stockfish", "GPT"], ratings = None):
+    def __init__(self, game_id, sf_engine, players = ["Stockfish", "GPT"], ratings = None, opening = "", w_player_id = 0):
         self.game_id = game_id
         
         self.board = chess.Board()
         self.state = ";"
         self.G = [";"]
         self.P = [0]
-        self.turn = random.randint(0, 1)
+        self.turn = w_player_id
         self.w_player_id = self.turn
         
         self.outcome = ""
@@ -28,6 +28,13 @@ class GameState(object):
                     continue
 
                 self.players[p_idx] = self.players[p_idx] + "-" + str(self.ratings[p_idx])
+
+        if len(opening) > 0:
+            for move_idx, move in enumerate(re.split("(?:(?:[0-9]+\.)|(?:[; ]))", opening)):
+                self.register_move(move, parse_move = "pgn")
+
+                if self.is_complete():
+                    raise Exception(f"Opening {opening} was invalid, completed the game at move {move_idx}: {move}.")
     
     @staticmethod
     def init_terminal_game(outcome, w_player_id, p_names = ["Stockfish", "GPT"], ratings = None):
@@ -68,7 +75,7 @@ class GameState(object):
         if self.termination == "":
             self.termination = f"Resignation: \'{self.turn}\' resigned."
 
-    def register_move(self, move: str, parse_move: str = None):
+    def register_move(self, move: str, parse_move: str = "uci"):
         move_failed = False
 
         if parse_move is not None:
@@ -135,3 +142,11 @@ class GameState(object):
         )
 
         pgn_file.write(game)
+
+def get_openings():
+    openings = []
+
+    # Eco Opening Book based on "Grandmaster-level Chess without Search" (https://github.com/google-deepmind/searchless_chess/blob/main/src/tournament.py#L195)
+    with open("./openings/eco_openings.pgn", "r") as openings_file:
+        for line in openings_file.readline():
+            

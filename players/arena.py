@@ -2,7 +2,7 @@ import chess, torch, os, random
 import chess.engine
 from typing import List
 from players.players import GPTPlayer, StockfishPlayer
-from players.game_utils import GameState
+from players.game_utils import GameState, get_openings
 from tokenizer.scripts.tokenizer import load_tokenizer
 import numpy as np
 import subprocess
@@ -45,7 +45,7 @@ class Arena(object):
 
         self.init_games = init_games
 
-    def run_games(self, total_games: int, write_out = None):
+    def run_games(self, total_games: int, write_out = None, openings = [], group_size = 1):
         if write_out:
             write_out = open(write_out + str(self.local_rank), "w")
             for game in self.init_games:
@@ -55,8 +55,16 @@ class Arena(object):
             G = None # B x S
             P = None # B x (S - 1)
             R = [] # B x 0 
+
         games_played = 0
-        game_states = [GameState(idx, self.adjudicator, self.p_names, [random.choice(range(1350, 2850, 100)) if "Stockfish" in p_name else None for p_name in self.p_names]) for idx in range(self.eval_bsz)]
+        game_order = [None] * total_games
+
+        game_openings = random.choices(openings, k = total_games // group_size)
+        game_openings = sum([[opening] * group_size for opening in game_openings], [])
+        game_perspectives = random.choices([0, 1], k = total_games // group_size)
+        game_perspectives = sum([[perspective] * group_size for perspective in game_perspectives], [])
+
+        game_states = [GameState(idx, self.adjudicator, self.p_names, [random.choice(range(1350, 2850, 100)) if "Stockfish" in p_name else None for p_name in self.p_names], opening = game_openings[idx], w_player_id = game_perspectives[idx]) for idx in range(self.eval_bsz)]
         base_game_id = self.eval_bsz
 
         move_num = 0
@@ -82,17 +90,23 @@ class Arena(object):
                     else:
                         g, p, r = game_state.get_gpr()
                         G, P, R = update_gpr(g, G, p, P, r, R, self.tokenize)
-
+                        game_order[game_state.game_id] = games_played
+    
                     games_played += 1
+
                 game_states = reduced_game_states
                 new_games = min(self.eval_bsz - len(game_states), total_games - (games_played + len(game_states))) # Min(Bsz - reduced_games, total_games - (games_played + reduced_games))
-                game_states += [GameState(base_game_id + game_id, self.adjudicator, self.p_names, [random.choice(range(1350, 2850, 100)) if "Stockfish" in p_name else None for p_name in self.p_names]) for game_id in range(new_games)]
+                game_states += [GameState(base_game_id + game_id, self.adjudicator, self.p_names, [random.choice(range(1350, 2850, 100)) if "Stockfish" in p_name else None for p_name in self.p_names], opening = game_openings[base_game_id + game_id], w_player_id = game_perspectives[base_game_id + game_id]) for game_id in range(new_games)]
                 base_game_id += new_games
 
         if write_out:
             write_out.close()
         else:
             R = torch.tensor(R)
+            assert all([idx is not None for idx in game_order])
+            G = G[game_order, :]
+            P = P[game_order, :]
+            R = R[game_order]
             return G, P, R
     
     def close(self):
@@ -150,8 +164,7 @@ def sample_sf_games_fast(ratings, games_per_pair = 20):
 
     return [GameState.init_terminal_game(outcome, 0, ["Stockfish", "Stockfish"], [w_elo, b_elo]) for w_elo, b_elo, outcome in zip(elos[:, 0], elos[:, 1], outcomes)]
 
-def sample_games(pi_theta, total_games, bsz, rank, tok_type = "move", tokenizer_path = "./tokenizer/tokenizers/move_token.pkl", self_play = False, write_out = None, sf_rating_games = "fast", sf_time = 0.1):
-
+def sample_games(pi_theta, total_games, bsz, rank, tok_type = "move", tokenizer_path = "./tokenizer/tokenizers/move_token.pkl", self_play = False, write_out = None, sf_rating_games = "fast", sf_time = 0.1, use_opening_book = False, group_size = 1):
     synthetic_games = None
     if sf_rating_games == "fast":
         synthetic_games = sample_sf_games_fast(range(1350, 2850, 100))
@@ -169,10 +182,14 @@ def sample_games(pi_theta, total_games, bsz, rank, tok_type = "move", tokenizer_
 
     arena = Arena(p0, p1, bsz, rank, tokenize, init_games = synthetic_games)
 
+    openings = None
+    if use_opening_book:
+        openings = get_openings()
+
     if write_out:
-        arena.run_games(total_games, write_out)
+        arena.run_games(total_games, write_out, openings = openings)
     else:
-        G, P, R = arena.run_games(total_games)
+        G, P, R = arena.run_games(total_games, group_size = group_size, openings = openings)
         G = G.type(torch.long)
 
     arena.close()
