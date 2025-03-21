@@ -35,7 +35,7 @@ class GameState(object):
                 if len(move) == 0:
                     continue
 
-                self.register_move(move, parse_move = "pgn")
+                self.register_move(move, parse_move = "san")
 
                 if self.is_complete():
                     raise Exception(f"Opening {opening} was invalid, completed the game at move {move_idx}: {move}.")
