@@ -149,7 +149,6 @@ def sample_sf_games_fast(ratings, games_per_pair = 20):
     # Assume some number of games to sample
     ratings_games = len(ratings) * (len(ratings) - 1) * games_per_pair // 2
 
-    # elos = np.array([random.sample(ratings, 2) for _ in range(ratings_games)])
     elos = np.array([[r1, r2] for r1 in ratings for r2 in ratings if r1 != r2])
     elos = np.repeat(elos, games_per_pair // 2, axis = 0)
     assert not np.any(elos[:, 0] == elos[:, 1])
@@ -170,7 +169,7 @@ def sample_games(pi_theta, total_games, bsz, rank, tok_type = "move", tokenizer_
     synthetic_games = []
     if sf_rating_games == "fast":
         sf_ratings = range(1350, 2850, 100)
-        synthetic_games, anchor_elo = sample_sf_games_fast(sf_ratings, games_per_pair = total_games // len(sf_ratings))
+        synthetic_games = sample_sf_games_fast(sf_ratings, games_per_pair = total_games // len(sf_ratings))
 
     p0 = GPTPlayer(pi_theta, f"cuda:{rank}", max_move_size = MMS[tok_type], tok_type = tok_type, tokenizer_path = tokenizer_path)
 
