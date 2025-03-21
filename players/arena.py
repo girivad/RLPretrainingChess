@@ -152,6 +152,7 @@ def sample_sf_games_fast(ratings, games_per_pair = 20):
     elos = np.array([[r1, r2] for r1 in ratings for r2 in ratings if r1 != r2])
     elos = np.repeat(elos, games_per_pair // 2, axis = 0)
     assert not np.any(elos[:, 0] == elos[:, 1])
+    assert elos.shape[0] == len(ratings_games)
     d_w = elos[:, 1] - elos[:, 0] - e_adv + e_draw
     d_b = elos[:, 0] - elos[:, 1] + e_adv + e_draw
 

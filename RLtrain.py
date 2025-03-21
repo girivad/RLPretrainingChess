@@ -231,7 +231,8 @@ while True:
             pi_theta, batch_size, batch_size, ddp_local_rank, tok_type = tok_type, 
             tokenizer_path = tokenizer_path, self_play = self_play, sf_time = 0.1,
             use_opening_book = use_opening_book,
-            group_size = group_size if baseline == "GRPO" else 1
+            group_size = group_size if baseline == "GRPO" else 1,
+            sf_rating_games = None
         )
         P = P[:, 1:] # B x (S - 1)
         G = G.to(device)
