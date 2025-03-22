@@ -37,13 +37,14 @@ class Arena(object):
         self.player0 = player0
         self.player1 = player1
         self.p_names = [type(self.player0).__name__, type(self.player1).__name__]
+        print("p names:", self.p_names)
         self.eval_bsz = eval_bsz
         self.local_rank = rank
 
         self.tokenize = tokenize
         self.adjudicator = chess.engine.SimpleEngine.popen_uci("./stockfish_exec", timeout = None)
 
-        self.init_games = init_games
+        self.init_games = [game for game in init_games]
 
     def run_games(self, total_games: int, write_out = None, openings = [], group_size = 1):
         if write_out:

@@ -18,17 +18,19 @@ class GameState(object):
         self.termination = ""
         self.sf_engine = sf_engine
         
-        self.players = players
+        self.players = [p_name for p_name in players]
 
         if ratings is not None:
+            print(f"Setting Ratings {ratings}, Players {players}")
             assert len(ratings) == len(players), f"Provided {len(ratings)} ratings for {len(players)} players."
-            self.ratings = ratings        
+            self.ratings = [r for r in ratings]
             for p_idx in range(len(self.players)):
                 if self.ratings[p_idx] is None:
                     continue
 
                 self.players[p_idx] = self.players[p_idx] + "-" + str(self.ratings[p_idx])
 
+        print("Opening:", opening)
         if len(opening) > 0:
             move_idx = 0
             for move in re.split("(?:(?:[0-9]+\.)|(?:[; ]))", opening):
@@ -41,6 +43,7 @@ class GameState(object):
                     raise Exception(f"Opening {opening} was invalid, completed the game at move {move_idx}: {move}.")
                 
                 move_idx += 1
+        print("Set Opening.")
     
     @staticmethod
     def init_terminal_game(outcome, w_player_id, p_names = ["Stockfish", "GPT"], ratings = None):
@@ -83,6 +86,9 @@ class GameState(object):
 
     def register_move(self, move: str, parse_move: str = "uci"):
         move_failed = False
+        move_str = move
+
+        assert type(move) == str, (move, type(move))
 
         if parse_move is not None:
             try:
@@ -100,7 +106,7 @@ class GameState(object):
                 self.termination = f"Ambiguous Move: \'{move}\' given context: \'{self.state}\'; Player: \'{self.turn}\'"
                 move_failed = True
             except Exception as err:
-                print("Error:", err)
+                print("Error:", err, "from parsing move", move_str)
                 move_failed = True
             if not bool(move):
                 self.termination = f"Parsed Null Move."

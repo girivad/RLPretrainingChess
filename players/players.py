@@ -16,7 +16,7 @@ class StockfishPlayer(object):
     def play_move(
         self, game_state: GameState
     ):
-        self._engine.configure({"UCI_Elo": game_state.sf_rating})
+        self._engine.configure({"UCI_Elo": game_state.ratings[game_state.turn]})
         result = self._engine.play(game_state.board, chess.engine.Limit(time=self._play_time))
 
         if result.resigned:
@@ -24,7 +24,7 @@ class StockfishPlayer(object):
         elif result.draw_offered:
             game_state.draw()
         elif result.move is not None:       
-            game_state.register_move(result.move)
+            game_state.register_move(result.move.uci())
         else:
             raise Exception("Stockfish played invalid move in state:\n" + game_state.state)
 
@@ -82,7 +82,6 @@ class GPTPlayer(object):
                 #     print("Game resigned.")
                 game_state.resign()
             else:
-                #TODO: Move parsing shouldn't depend on tokenizer type, but on GameFormat
                 game_state.register_move(move, parse_move = self.input_type)
         
         # if self.device == "cuda:0":
