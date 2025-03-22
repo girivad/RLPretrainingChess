@@ -32,7 +32,7 @@ tok_type = "move"
 tokenizer_path = "./tokenizer/tokenizers/move_token.pkl"
 
 # baby GPT model :)
-n_slayer = 2
+n_slayer = 0
 n_layer = 6
 n_head = 8
 n_embd = 512
