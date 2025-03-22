@@ -21,7 +21,6 @@ class GameState(object):
         self.players = [p_name for p_name in players]
 
         if ratings is not None:
-            print(f"Setting Ratings {ratings}, Players {players}")
             assert len(ratings) == len(players), f"Provided {len(ratings)} ratings for {len(players)} players."
             self.ratings = [r for r in ratings]
             for p_idx in range(len(self.players)):
@@ -30,7 +29,6 @@ class GameState(object):
 
                 self.players[p_idx] = self.players[p_idx] + "-" + str(self.ratings[p_idx])
 
-        print("Opening:", opening)
         if len(opening) > 0:
             move_idx = 0
             for move in re.split("(?:(?:[0-9]+\.)|(?:[; ]))", opening):
@@ -43,7 +41,6 @@ class GameState(object):
                     raise Exception(f"Opening {opening} was invalid, completed the game at move {move_idx}: {move}.")
                 
                 move_idx += 1
-        print("Set Opening.")
     
     @staticmethod
     def init_terminal_game(outcome, w_player_id, p_names = ["Stockfish", "GPT"], ratings = None):

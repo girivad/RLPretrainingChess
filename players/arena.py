@@ -6,6 +6,7 @@ from players.game_utils import GameState, get_openings
 from tokenizer.scripts.tokenizer import load_tokenizer
 import numpy as np
 import subprocess
+from tqdm import tqdm
 
 STREAM_SIZE = 1024 ** 3
 
@@ -37,7 +38,6 @@ class Arena(object):
         self.player0 = player0
         self.player1 = player1
         self.p_names = [type(self.player0).__name__, type(self.player1).__name__]
-        print("p names:", self.p_names)
         self.eval_bsz = eval_bsz
         self.local_rank = rank
 
@@ -70,6 +70,8 @@ class Arena(object):
 
         move_num = 0
 
+        games_prog_bar = tqdm(total = total_games)
+
         while games_played < total_games:
             while len(game_states) > 0:
                 move_num += 1
@@ -94,16 +96,19 @@ class Arena(object):
                         game_order[game_state.game_id] = games_played
     
                     games_played += 1
+                    games_prog_bar.update(1)
 
                 game_states = reduced_game_states
                 new_games = min(self.eval_bsz - len(game_states), total_games - (games_played + len(game_states))) # Min(Bsz - reduced_games, total_games - (games_played + reduced_games))
                 game_states += [GameState(base_game_id + game_id, self.adjudicator, self.p_names, [random.choice(range(1350, 2850, 100)) if "Stockfish" in p_name else None for p_name in self.p_names], opening = game_openings[base_game_id + game_id], w_player_id = game_perspectives[base_game_id + game_id]) for game_id in range(new_games)]
                 base_game_id += new_games
 
+        games_prog_bar.close()
+
         if write_out:
             write_out.close()
         else:
-            R = torch.tensor(R)
+            R = torch.tensor(R).type(torch.DoubleTensor)
             assert all([idx is not None for idx in game_order])
             G = G[game_order, :]
             P = P[game_order, :]
@@ -119,19 +124,12 @@ def collate_games(files: List[str], write_out: str):
     global_pgn = open(write_out, "wb")
 
     for file in files:
-        # print("Merging File:", file)
         local_pgn = open(file, "rb")
-        # print("Opened Local PGN")
         stream = local_pgn.read(STREAM_SIZE)
-        # print("Read first stream:", stream.decode("utf-8"))
         while len(stream) > 0 and stream is not None:
             global_pgn.write(stream)
-            # print("Wrote Stream")
             stream = local_pgn.read(STREAM_SIZE)
-            # print("Stream:", stream.decode("utf-8"))
         
-        # print("Write Out Complete")
-
         local_pgn.close()
         os.remove(file)
     
@@ -143,27 +141,42 @@ MMS = {
 } # Max Move Size in Tokens
 
 def sample_sf_games_fast(ratings, games_per_pair = 20):
+    print("Starting Synthetic SF Games.")
     # MLEs of Draw/Advantage
     e_adv = 32.8
     e_draw = 97.3
     
     # Assume some number of games to sample
-    ratings_games = len(ratings) * (len(ratings) - 1) * games_per_pair // 2
+    print("LRatings:", len(ratings), "Games per Pair:", games_per_pair)
+    ratings_games = len(ratings) * (len(ratings) - 1) * (games_per_pair // 2)
+    print("Ratings Games:", ratings_games)
 
     elos = np.array([[r1, r2] for r1 in ratings for r2 in ratings if r1 != r2])
+    print("All ELo COmbinations:", elos.shape[0])
     elos = np.repeat(elos, games_per_pair // 2, axis = 0)
-    assert not np.any(elos[:, 0] == elos[:, 1])
-    assert elos.shape[0] == len(ratings_games)
+    print("Repeat Elos:", elos.shape[0])
+    assert np.all(elos[:, 0] != elos[:, 1])
+    print("No repeated elos")
+    assert elos.shape[0] == ratings_games
+    print("Created Elo Settings")
+
     d_w = elos[:, 1] - elos[:, 0] - e_adv + e_draw
     d_b = elos[:, 0] - elos[:, 1] + e_adv + e_draw
+
+    print("Calculated d_w, d_b", d_w.shape, d_b.shape)
 
     p_w = 1 / (1 + 10 ** (d_w / 400))
     assert np.all(p_w > 0)
     p_b = 1 / (1 + 10 ** (d_b / 400))
     assert np.all(p_b > 0)
     p_d = 1 - p_w - p_b
+
+    print("p_w, p_b, p_d")
+
     assert np.all(p_d > 0), (np.sum(p_d <= 0), p_w[p_d <= 0], p_b[p_d <= 0])
     outcomes = [str(np.random.choice(["1-0", "1/2-1/2", "0-1"], p = [p_w[game], p_d[game], p_b[game]])) for game in range(ratings_games)]
+
+    print("Finished Synthetic SF Games.")
 
     return [GameState.init_terminal_game(outcome, 0, ["Stockfish", "Stockfish"], [w_elo, b_elo]) for w_elo, b_elo, outcome in zip(elos[:, 0], elos[:, 1], outcomes)]
 
@@ -173,6 +186,9 @@ def sample_games(pi_theta, total_games, bsz, rank, tok_type = "move", tokenizer_
         sf_ratings = range(1350, 2850, 100)
         synthetic_games = sample_sf_games_fast(sf_ratings, games_per_pair = total_games // len(sf_ratings))
 
+    if rank == 0:
+        print("Synthetic games sampled")
+
     p0 = GPTPlayer(pi_theta, f"cuda:{rank}", max_move_size = MMS[tok_type], tok_type = tok_type, tokenizer_path = tokenizer_path)
 
     if self_play:
@@ -180,11 +196,17 @@ def sample_games(pi_theta, total_games, bsz, rank, tok_type = "move", tokenizer_
     else:
         p1 = StockfishPlayer(sf_time)
 
+    if rank == 0:
+        print("Players created")
+
     tokenize = None
     if write_out is None:
         tokenize, _, _ = load_tokenizer(tok_type, tokenizer_path)
 
     arena = Arena(p0, p1, bsz, rank, tokenize, init_games = synthetic_games)
+
+    if rank == 0:
+        print("Arena created")
 
     openings = None
     if use_opening_book:
@@ -195,6 +217,9 @@ def sample_games(pi_theta, total_games, bsz, rank, tok_type = "move", tokenizer_
     else:
         G, P, R = arena.run_games(total_games, group_size = group_size, openings = openings)
         G = G.type(torch.long)
+
+    if rank == 0:
+        print("Games Run")
 
     arena.close()
     

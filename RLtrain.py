@@ -152,7 +152,12 @@ for k,v in list(state_dict.items()):
     if k.startswith(unwanted_prefix):
         state_dict[k[len(unwanted_prefix):]] = state_dict.pop(k)
 pi_theta.load_state_dict(state_dict)
+pi_theta.seer = None
 pi_ref.load_state_dict(state_dict)
+pi_ref.seer = None
+
+if master_process: 
+    print(f"Non-Seer Parameters: {pi_theta.get_num_params()}")
 
 iter_num = 0
 if init_from == "resume":
@@ -220,159 +225,170 @@ pi_ref.eval()
 
 # exit(0)
 
-# try:
-while True:
-    # G: Indices of moves played in simulated games; B x S
-    # P: Player Name/Type, -1 for black GPT Player, +1 for white GPT Player, 0 for Stockfish Player/Padding Tokens; B x S
-    # R: Game Rewards, reward is -1 for black victory, +1 for white victory, 0 for draw; B x 0.
-
-    with torch.no_grad():
-        G, P, R = sample_games(
-            pi_theta, batch_size, batch_size, ddp_local_rank, tok_type = tok_type, 
-            tokenizer_path = tokenizer_path, self_play = self_play, sf_time = 0.1,
-            use_opening_book = use_opening_book,
-            group_size = group_size if baseline == "GRPO" else 1,
-            sf_rating_games = None
-        )
-        P = P[:, 1:] # B x (S - 1)
-        G = G.to(device)
-        P = P.to(device)
-        R = R.to(device)
-
-        if baseline == "GRPO":
-            mean_r = torch.mean(R.view(-1, group_size), dim = 1)
-            std_r = torch.std(R.view(-1, group_size), dim = 1)
-            mean_r = mean_r.repeat_interleave(group_size)
-            std_r = std_r.repeat_interleave(group_size)
-
-            R = torch.where(std_r != 0, (R - mean_r) / std_r, R)
-            assert not torch.any(R.isnan()), R            
-    
-    # determine and set the learning rate for this iteration
-    lr = learning_rate
-    for param_group in optimizer.param_groups:
-        param_group['lr'] = lr
-
-    # evaluate the elo on further games and write checkpoints
-    if iter_num % eval_interval == 0:      
-        with torch.no_grad():
-            elo, lw_bd, up_bd = estimate_elo(
-                pi_theta, batch_size, eval_iters if iter_num % hifi_eval_interval != 0 else hifi_eval_iters, ddp_local_rank, f"./pgn/{iter_num}", 
-                wait, tok_type = tok_type, tokenizer_path = tokenizer_path, world_size = ddp_world_size
-            )
-
+try:
+    while True:
+        # G: Indices of moves played in simulated games; B x S
+        # P: Player Name/Type, -1 for black GPT Player, +1 for white GPT Player, 0 for Stockfish Player/Padding Tokens; B x S
+        # R: Game Rewards, reward is -1 for black victory, +1 for white victory, 0 for draw; B x 0.
         if master_process:
-            print(f"step {iter_num}: Elo rating {lw_bd:.4f} < {elo:.4f} < {up_bd:.4f}")
+            print("Starting to Sample Games")
+        with torch.no_grad():
+            G, P, R = sample_games(
+                pi_theta, batch_size, batch_size, ddp_local_rank, tok_type = tok_type, 
+                tokenizer_path = tokenizer_path, self_play = self_play, sf_time = 0.1,
+                use_opening_book = use_opening_book,
+                group_size = group_size if baseline == "GRPO" else 1,
+                sf_rating_games = None
+            )
+            P = P[:, 1:] # B x (S - 1)
+            G = G.to(device)
+            P = P.to(device)
+            R = R.to(device)
+
+            if master_process:
+                print("Retrieved GPR")
+
+            if baseline == "GRPO":
+                mean_r = torch.mean(R.view(-1, group_size), dim = 1)
+                std_r = torch.std(R.view(-1, group_size), dim = 1)
+                mean_r = mean_r.repeat_interleave(group_size)
+                std_r = std_r.repeat_interleave(group_size)
+
+                R = torch.where(std_r != 0, (R - mean_r) / std_r, R)
+                assert not torch.any(R.isnan()), R            
+                
+                if master_process:
+                    print("Normalized Reward via GRPO.")
+        
+        # determine and set the learning rate for this iteration
+        lr = learning_rate
+        for param_group in optimizer.param_groups:
+            param_group['lr'] = lr
+
+        # evaluate the elo on further games and write checkpoints
+        if iter_num % eval_interval == 0:      
+            with torch.no_grad():
+                if master_process:
+                    print("Starting to Estimate ELO")
+                elo, lw_bd, up_bd = estimate_elo(
+                    pi_theta, batch_size, eval_iters if iter_num % hifi_eval_interval != 0 else hifi_eval_iters, ddp_local_rank, f"./pgn/{iter_num}", 
+                    wait, tok_type = tok_type, tokenizer_path = tokenizer_path, world_size = ddp_world_size
+                )
+                if master_process:
+                    print("Done estimating elo")
+
+            if master_process:
+                print(f"step {iter_num}: Elo rating {lw_bd:.4f} < {elo:.4f} < {up_bd:.4f}")
+                if wandb_log:
+                    wandb.log({
+                        "iter": iter_num,
+                        "elo_up": up_bd,
+                        "elo_lw": lw_bd,
+                        "elo": elo,
+                        "lr": lr,
+                        "mfu": running_mfu*100, # convert to percentage
+                    })
+                if iter_num % ckpt_interval == 0:
+                    if iter_num > 0:
+                        checkpoint = {
+                            'model': raw_model.state_dict(),
+                            'optimizer': optimizer.state_dict(),
+                            'model_args': model_args,
+                            'iter_num': iter_num,
+                            'config': config,
+                            "elo": elo,
+                            "elo_up": up_bd,
+                            "elo_lw": lw_bd
+                        }
+                        ckpt_dir = os.path.join(out_dir, f"RLckpt_{iter_num}")
+                        if not os.path.isdir(ckpt_dir):
+                            os.mkdir(ckpt_dir)
+                        print(f"saving checkpoint to {ckpt_dir}")
+                        torch.save(checkpoint, os.path.join(ckpt_dir, 'ckpt.pt'))
+        
+        if iter_num == 0 and eval_only:
+            break
+
+        # forward backward update, with optional gradient accumulation to simulate larger batch size
+        # and using the GradScaler if data type is float16
+        loss_dict = dict()
+        for micro_step in range(gradient_accumulation_steps):
+            if ddp:
+                # in DDP training we only need to sync gradients at the last micro step.
+                # the official way to do this is with model.no_sync() context manager, but
+                # I really dislike that this bloats the code and forces us to repeat code
+                # looking at the source of that context manager, it just toggles this variable
+                pi_theta.require_backward_grad_sync = (micro_step == gradient_accumulation_steps - 1)
+            with ctx:
+                pi_t, _ = pi_theta(G[:, :-1], evaluate = True, batch_inf = True) # B x (S - 1) x V
+                pi_t = smooth(F.softmax(pi_t, dim = -1))
+                # Index Select Workaround: https://github.com/pytorch/pytorch/issues/30574
+                pi_t_prbs = torch.gather(pi_t, 2, G[:, 1:].unsqueeze(2)).squeeze(2) # B x (S - 1)
+
+                with torch.no_grad():
+                    pi_r, _ = pi_ref(G[:, :-1], evaluate = True, batch_inf = True)
+                    pi_r = smooth(F.softmax(pi_r, dim = -1))
+                    pi_r_prbs = torch.gather(pi_r, 2, G[:, 1:].unsqueeze(2)).squeeze(2) # B x (S - 1)
+                
+                prb_ratio = pi_t_prbs / pi_t_prbs.detach().clone() # B x (S - 1)
+                clipped_ratio = torch.clip(prb_ratio, 1 - clip_eps, 1 + clip_eps) # B x (S - 1)
+
+                assert torch.all(pi_t_prbs > 0)
+                assert torch.all((P != 0).sum(dim = 1) > 0)
+
+                loss = torch.mean(
+                    torch.sum(
+                        torch.where(prb_ratio < clipped_ratio, prb_ratio, clipped_ratio) * P * R.view(-1, 1) - 
+                        beta * (pi_r_prbs / pi_t_prbs - torch.log(pi_r_prbs) + torch.log(pi_t_prbs) - 1) * (P != 0),
+                        dim = 1
+                    ) / (P != 0).sum(dim = 1)
+                )
+
+                assert not torch.any(torch.isnan(loss))
+                loss = loss / gradient_accumulation_steps # scale the loss to account for gradient accumulation
+
+            # backward pass, with gradient scaling if training in fp16
+            scaler.scale(loss).backward()
+
+        # clip the gradient
+        if grad_clip != 0.0:
+            scaler.unscale_(optimizer)
+            torch.nn.utils.clip_grad_norm_(pi_theta.parameters(), grad_clip)
+        # step the optimizer and scaler if training in fp16
+        scaler.step(optimizer)
+        scaler.update()
+        # flush the gradients as soon as we can, no need for this memory anymore
+        optimizer.zero_grad(set_to_none=True)
+
+        # timing and logging
+        t1 = time.time()
+        dt = t1 - t0
+        t0 = t1
+        if iter_num % log_interval == 0 and master_process:
+            # get loss as float. note: this is a CPU-GPU sync point
+            # scale up to undo the division above, approximating the true total loss (exact would have been a sum)
+            assert not torch.any(torch.isnan(loss))
+            lossf = loss.item() * gradient_accumulation_steps
+            if local_iter_num >= 5: # let the training loop settle a bit
+                mfu = raw_model.estimate_mfu(batch_size * gradient_accumulation_steps, dt)
+                running_mfu = mfu if running_mfu == -1.0 else 0.9*running_mfu + 0.1*mfu
+            print(f"iter {iter_num}: loss {lossf:.4f}, time {dt*1000:.2f}ms, mfu {running_mfu*100:.2f}%")
             if wandb_log:
-                wandb.log({
+                wandb.log(dict(**{
                     "iter": iter_num,
-                    "elo_up": up_bd,
-                    "elo_lw": lw_bd,
-                    "elo": elo,
+                    "train/loss": lossf,
                     "lr": lr,
                     "mfu": running_mfu*100, # convert to percentage
-                })
-            if iter_num % ckpt_interval == 0:
-                if iter_num > 0:
-                    checkpoint = {
-                        'model': raw_model.state_dict(),
-                        'optimizer': optimizer.state_dict(),
-                        'model_args': model_args,
-                        'iter_num': iter_num,
-                        'config': config,
-                        "elo": elo,
-                        "elo_up": up_bd,
-                        "elo_lw": lw_bd
-                    }
-                    ckpt_dir = os.path.join(out_dir, f"RLckpt_{iter_num}")
-                    if not os.path.isdir(ckpt_dir):
-                        os.mkdir(ckpt_dir)
-                    print(f"saving checkpoint to {ckpt_dir}")
-                    torch.save(checkpoint, os.path.join(ckpt_dir, 'ckpt.pt'))
-    
-    if iter_num == 0 and eval_only:
-        break
+                }))
+        iter_num += 1
+        local_iter_num += 1
 
-    # forward backward update, with optional gradient accumulation to simulate larger batch size
-    # and using the GradScaler if data type is float16
-    loss_dict = dict()
-    for micro_step in range(gradient_accumulation_steps):
-        if ddp:
-            # in DDP training we only need to sync gradients at the last micro step.
-            # the official way to do this is with model.no_sync() context manager, but
-            # I really dislike that this bloats the code and forces us to repeat code
-            # looking at the source of that context manager, it just toggles this variable
-            pi_theta.require_backward_grad_sync = (micro_step == gradient_accumulation_steps - 1)
-        with ctx:
-            pi_t, _ = pi_theta(G[:, :-1], evaluate = True, batch_inf = True) # B x (S - 1) x V
-            pi_t = smooth(F.softmax(pi_t, dim = -1))
-            # Index Select Workaround: https://github.com/pytorch/pytorch/issues/30574
-            pi_t_prbs = torch.gather(pi_t, 2, G[:, 1:].unsqueeze(2)).squeeze(2) # B x (S - 1)
+        # termination conditions
+        if iter_num > max_iters:
+            break
 
-            with torch.no_grad():
-                pi_r, _ = pi_ref(G[:, :-1], evaluate = True, batch_inf = True)
-                pi_r = smooth(F.softmax(pi_r, dim = -1))
-                pi_r_prbs = torch.gather(pi_r, 2, G[:, 1:].unsqueeze(2)).squeeze(2) # B x (S - 1)
-            
-            prb_ratio = pi_t_prbs / pi_t_prbs.detach().clone() # B x (S - 1)
-            clipped_ratio = torch.clip(prb_ratio, 1 - clip_eps, 1 + clip_eps) # B x (S - 1)
-
-            assert torch.all(pi_t_prbs > 0)
-            assert torch.all((P != 0).sum(dim = 1) > 0)
-
-            loss = torch.mean(
-                torch.sum(
-                    torch.where(prb_ratio < clipped_ratio, prb_ratio, clipped_ratio) * P * R.view(-1, 1) - 
-                    beta * (pi_r_prbs / pi_t_prbs - torch.log(pi_r_prbs) + torch.log(pi_t_prbs) - 1) * (P != 0),
-                    dim = 1
-                ) / (P != 0).sum(dim = 1)
-            )
-
-            assert not torch.any(torch.isnan(loss))
-            loss = loss / gradient_accumulation_steps # scale the loss to account for gradient accumulation
-
-        # backward pass, with gradient scaling if training in fp16
-        scaler.scale(loss).backward()
-
-    # clip the gradient
-    if grad_clip != 0.0:
-        scaler.unscale_(optimizer)
-        torch.nn.utils.clip_grad_norm_(pi_theta.parameters(), grad_clip)
-    # step the optimizer and scaler if training in fp16
-    scaler.step(optimizer)
-    scaler.update()
-    # flush the gradients as soon as we can, no need for this memory anymore
-    optimizer.zero_grad(set_to_none=True)
-
-    # timing and logging
-    t1 = time.time()
-    dt = t1 - t0
-    t0 = t1
-    if iter_num % log_interval == 0 and master_process:
-        # get loss as float. note: this is a CPU-GPU sync point
-        # scale up to undo the division above, approximating the true total loss (exact would have been a sum)
-        assert not torch.any(torch.isnan(loss))
-        lossf = loss.item() * gradient_accumulation_steps
-        if local_iter_num >= 5: # let the training loop settle a bit
-            mfu = raw_model.estimate_mfu(batch_size * gradient_accumulation_steps, dt)
-            running_mfu = mfu if running_mfu == -1.0 else 0.9*running_mfu + 0.1*mfu
-        print(f"iter {iter_num}: loss {lossf:.4f}, time {dt*1000:.2f}ms, mfu {running_mfu*100:.2f}%")
-        if wandb_log:
-            wandb.log(dict(**{
-                "iter": iter_num,
-                "train/loss": lossf,
-                "lr": lr,
-                "mfu": running_mfu*100, # convert to percentage
-            }))
-    iter_num += 1
-    local_iter_num += 1
-
-    # termination conditions
-    if iter_num > max_iters:
-        break
-
-# except Exception as err:
-#     print("Error:", err)
+except Exception as err:
+    print("RL Train Error:", err)
 
 if ddp:
     destroy_process_group()
