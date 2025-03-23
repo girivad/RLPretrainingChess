@@ -13,6 +13,9 @@ class StockfishPlayer(object):
         stockfish_path = "./stockfish_exec"
         self._engine = chess.engine.SimpleEngine.popen_uci(stockfish_path, timeout = None)
 
+    def name(self):
+        return "Stockfish"
+
     def play_move(
         self, game_state: GameState
     ):
@@ -54,6 +57,9 @@ class GPTPlayer(object):
         self.max_move_size = max_move_size
 
         self.input_type = "uci"
+
+    def name(self):
+        return "GPT"
 
     def play_moves(
         self, game_states: List[GameState]
