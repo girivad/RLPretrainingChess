@@ -37,7 +37,7 @@ class Arena(object):
     def __init__(self, player0: StockfishPlayer | GPTPlayer, player1: StockfishPlayer | GPTPlayer, eval_bsz, rank, tokenize = None, init_games: List[GameState] = []):
         self.player0 = player0
         self.player1 = player1
-        self.p_names = [type(self.player0).name(), type(self.player1).name()]
+        self.p_names = [self.player0.name(), self.player1.name()]
         self.eval_bsz = eval_bsz
         self.local_rank = rank
 
