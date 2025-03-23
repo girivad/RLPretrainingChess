@@ -219,14 +219,14 @@ def calc_elo(pgn_file):
     if not os.path.exists("./bayeselo_ratings_script"):
         raise Exception("Failed to prepare ratings script.")
     subprocess.run("./BayesianElo/src/bayeselo < bayeselo_ratings_script", shell = True, capture_output = True)
-    elo, lw_bd, up_bd = parse_elo("ratings", "GPTPlayer")
-    if elo is None:
-        raise Exception("Failed to parse GPTPlayer from the ratings.")
-    
+    elo, lw_bd, up_bd = parse_elo("ratings", "GPT")
     # os.remove("ratings")
     with open("ratings", "r") as ratings:
         print(ratings.read())
-
+    
+    if elo is None:
+        raise Exception("Failed to parse GPT from the ratings.")
+    
     return elo, lw_bd, up_bd
 
 def estimate_elo(pi_theta, eval_bsz, eval_games, rank, write_out, wait, tok_type = "move", tokenizer_path = "./tokenizer/tokenizers/move_token.pkl", world_size = None):
