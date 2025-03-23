@@ -252,7 +252,7 @@ def calc_elo(pgn_file):
     elo, lw_bd, up_bd = parse_elo("ratings", "GPTPlayer")
     if elo is None:
         raise Exception("Failed to parse GPTPlayer from the ratings.")
-    os.remove("ratings")
+    # os.remove("ratings")
     return elo, lw_bd, up_bd
 
 def estimate_elo(pi_theta, eval_bsz, eval_games, rank, write_out, wait, tok_type = "move", tokenizer_path = "./tokenizer/tokenizers/move_token.pkl", world_size = None):
