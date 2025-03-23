@@ -230,8 +230,6 @@ try:
         # G: Indices of moves played in simulated games; B x S
         # P: Player Name/Type, -1 for black GPT Player, +1 for white GPT Player, 0 for Stockfish Player/Padding Tokens; B x S
         # R: Game Rewards, reward is -1 for black victory, +1 for white victory, 0 for draw; B x 0.
-        if master_process:
-            print("Starting to Sample Games")
         with torch.no_grad():
             G, P, R = sample_games(
                 pi_theta, batch_size, batch_size, ddp_local_rank, tok_type = tok_type, 
@@ -245,9 +243,6 @@ try:
             P = P.to(device)
             R = R.to(device)
 
-            if master_process:
-                print("Retrieved GPR")
-
             if baseline == "GRPO":
                 mean_r = torch.mean(R.view(-1, group_size), dim = 1)
                 std_r = torch.std(R.view(-1, group_size), dim = 1)
@@ -257,9 +252,6 @@ try:
                 R = torch.where(std_r != 0, (R - mean_r) / std_r, R)
                 assert not torch.any(R.isnan()), R            
                 
-                if master_process:
-                    print("Normalized Reward via GRPO.")
-        
         # determine and set the learning rate for this iteration
         lr = learning_rate
         for param_group in optimizer.param_groups:
@@ -268,14 +260,10 @@ try:
         # evaluate the elo on further games and write checkpoints
         if iter_num % eval_interval == 0:      
             with torch.no_grad():
-                if master_process:
-                    print("Starting to Estimate ELO")
                 elo, lw_bd, up_bd = estimate_elo(
                     pi_theta, batch_size, eval_iters if iter_num % hifi_eval_interval != 0 else hifi_eval_iters, ddp_local_rank, f"./pgn/{iter_num}", 
                     wait, tok_type = tok_type, tokenizer_path = tokenizer_path, world_size = ddp_world_size
                 )
-                if master_process:
-                    print("Done estimating elo")
 
             if master_process:
                 print(f"step {iter_num}: Elo rating {lw_bd:.4f} < {elo:.4f} < {up_bd:.4f}")

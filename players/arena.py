@@ -141,29 +141,20 @@ MMS = {
 } # Max Move Size in Tokens
 
 def sample_sf_games_fast(ratings, games_per_pair = 20):
-    print("Starting Synthetic SF Games.")
     # MLEs of Draw/Advantage
     e_adv = 32.8
     e_draw = 97.3
     
     # Assume some number of games to sample
-    print("LRatings:", len(ratings), "Games per Pair:", games_per_pair)
     ratings_games = len(ratings) * (len(ratings) - 1) * (games_per_pair // 2)
-    print("Ratings Games:", ratings_games)
 
     elos = np.array([[r1, r2] for r1 in ratings for r2 in ratings if r1 != r2])
-    print("All ELo COmbinations:", elos.shape[0])
     elos = np.repeat(elos, games_per_pair // 2, axis = 0)
-    print("Repeat Elos:", elos.shape[0])
     assert np.all(elos[:, 0] != elos[:, 1])
-    print("No repeated elos")
     assert elos.shape[0] == ratings_games
-    print("Created Elo Settings")
 
     d_w = elos[:, 1] - elos[:, 0] - e_adv + e_draw
     d_b = elos[:, 0] - elos[:, 1] + e_adv + e_draw
-
-    print("Calculated d_w, d_b", d_w.shape, d_b.shape)
 
     p_w = 1 / (1 + 10 ** (d_w / 400))
     assert np.all(p_w > 0)
@@ -171,12 +162,8 @@ def sample_sf_games_fast(ratings, games_per_pair = 20):
     assert np.all(p_b > 0)
     p_d = 1 - p_w - p_b
 
-    print("p_w, p_b, p_d")
-
     assert np.all(p_d > 0), (np.sum(p_d <= 0), p_w[p_d <= 0], p_b[p_d <= 0])
     outcomes = [str(np.random.choice(["1-0", "1/2-1/2", "0-1"], p = [p_w[game], p_d[game], p_b[game]])) for game in range(ratings_games)]
-
-    print("Finished Synthetic SF Games.")
 
     return [GameState.init_terminal_game(outcome, 0, ["Stockfish", "Stockfish"], [w_elo, b_elo]) for w_elo, b_elo, outcome in zip(elos[:, 0], elos[:, 1], outcomes)]
 
@@ -186,9 +173,6 @@ def sample_games(pi_theta, total_games, bsz, rank, tok_type = "move", tokenizer_
         sf_ratings = range(1350, 2850, 100)
         synthetic_games = sample_sf_games_fast(sf_ratings, games_per_pair = total_games // len(sf_ratings))
 
-    if rank == 0:
-        print("Synthetic games sampled")
-
     p0 = GPTPlayer(pi_theta, f"cuda:{rank}", max_move_size = MMS[tok_type], tok_type = tok_type, tokenizer_path = tokenizer_path)
 
     if self_play:
@@ -196,17 +180,11 @@ def sample_games(pi_theta, total_games, bsz, rank, tok_type = "move", tokenizer_
     else:
         p1 = StockfishPlayer(sf_time)
 
-    if rank == 0:
-        print("Players created")
-
     tokenize = None
     if write_out is None:
         tokenize, _, _ = load_tokenizer(tok_type, tokenizer_path)
 
     arena = Arena(p0, p1, bsz, rank, tokenize, init_games = synthetic_games)
-
-    if rank == 0:
-        print("Arena created")
 
     openings = None
     if use_opening_book:
@@ -217,9 +195,6 @@ def sample_games(pi_theta, total_games, bsz, rank, tok_type = "move", tokenizer_
     else:
         G, P, R = arena.run_games(total_games, group_size = group_size, openings = openings)
         G = G.type(torch.long)
-
-    if rank == 0:
-        print("Games Run")
 
     arena.close()
     
