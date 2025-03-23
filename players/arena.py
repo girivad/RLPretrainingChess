@@ -70,8 +70,6 @@ class Arena(object):
 
         move_num = 0
 
-        games_prog_bar = tqdm(total = total_games)
-
         while games_played < total_games:
             while len(game_states) > 0:
                 move_num += 1
@@ -96,14 +94,11 @@ class Arena(object):
                         game_order[game_state.game_id] = games_played
     
                     games_played += 1
-                    games_prog_bar.update(1)
 
                 game_states = reduced_game_states
                 new_games = min(self.eval_bsz - len(game_states), total_games - (games_played + len(game_states))) # Min(Bsz - reduced_games, total_games - (games_played + reduced_games))
                 game_states += [GameState(base_game_id + game_id, self.adjudicator, self.p_names, [random.choice(range(1350, 2850, 100)) if "Stockfish" in p_name else None for p_name in self.p_names], opening = game_openings[base_game_id + game_id], w_player_id = game_perspectives[base_game_id + game_id]) for game_id in range(new_games)]
                 base_game_id += new_games
-
-        games_prog_bar.close()
 
         if write_out:
             write_out.close()
