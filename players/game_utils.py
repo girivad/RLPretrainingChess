@@ -4,7 +4,7 @@ from chess import IllegalMoveError, InvalidMoveError, AmbiguousMoveError
 STREAM_SIZE = 1024 ** 3
 
 class GameState(object):
-    def __init__(self, game_id, sf_engine, players = ["Stockfish", "GPT"], ratings = None, opening = "", w_player_id = 0):
+    def __init__(self, game_id, sf_engine, players = ["Stockfish", "GPT"], ratings = None, opening = "", w_player_id = 0, invalid_retries = 0):
         self.game_id = game_id
         
         self.board = chess.Board()
@@ -41,7 +41,10 @@ class GameState(object):
                     raise Exception(f"Opening {opening} was invalid, completed the game at move {move_idx}: {move}.")
                 
                 move_idx += 1
-    
+
+        self.retries = invalid_retries
+        self.retry_limit = invalid_retries
+
     @staticmethod
     def init_terminal_game(outcome, w_player_id, p_names = ["Stockfish", "GPT"], ratings = None):
         game_state = GameState(-1, None, p_names, ratings)
@@ -94,12 +97,24 @@ class GameState(object):
                 elif parse_move == "uci":
                     move = self.board.parse_uci(move)
             except IllegalMoveError:
+                if self.retries > 0:
+                    self.retries -= 1
+                    return
+
                 self.termination = f"Illegal Move: \'{move}\' given context: \'{self.state}\'; Player: \'{self.turn}\'"
                 move_failed = True
             except InvalidMoveError:
+                if self.retries > 0:
+                    self.retries -= 1
+                    return
+
                 self.termination = f"Invalid Move: \'{move}\' given context: \'{self.state}\'; Player: \'{self.turn}\'"
                 move_failed = True
             except AmbiguousMoveError:
+                if self.retries > 0:
+                    self.retries -= 1
+                    return
+
                 self.termination = f"Ambiguous Move: \'{move}\' given context: \'{self.state}\'; Player: \'{self.turn}\'"
                 move_failed = True
             except Exception as err:
@@ -115,6 +130,8 @@ class GameState(object):
         player_type = (-1 ** (1 * (self.turn != self.w_player_id))) if "GPT" in self.players[self.turn] else 0
         self.P.append(player_type)
         assert len(self.G) == len(self.P)
+
+        self.retries = self.retry_limit
 
         if move_failed:
             self.resign()

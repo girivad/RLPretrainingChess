@@ -69,6 +69,8 @@ clip_eps = 0.2
 use_opening_book = True
 group_size = 25 #TODO: Set in configuration files
 self_play = False
+# evaluation
+invalid_retries = 5
 # adamw optimizer
 beta = 0.9
 learning_rate = 6e-4 # max learning rate
@@ -262,7 +264,8 @@ try:
             with torch.no_grad():
                 elo, lw_bd, up_bd = estimate_elo(
                     pi_theta, batch_size, eval_iters if iter_num % hifi_eval_interval != 0 else hifi_eval_iters, ddp_local_rank, f"./pgn/{iter_num}", 
-                    wait, tok_type = tok_type, tokenizer_path = tokenizer_path, world_size = ddp_world_size, use_opening_book = use_opening_book
+                    wait, tok_type = tok_type, tokenizer_path = tokenizer_path, world_size = ddp_world_size, use_opening_book = use_opening_book,
+                    invalid_retries = invalid_retries
                 )
 
             if master_process:
