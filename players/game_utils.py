@@ -29,6 +29,9 @@ class GameState(object):
 
                 self.players[p_idx] = self.players[p_idx] + "-" + str(self.ratings[p_idx])
 
+        self.retries = invalid_retries
+        self.retry_limit = invalid_retries
+
         if opening is not None and len(opening) > 0:
             move_idx = 0
             for move in re.split("(?:(?:[0-9]+\.)|(?:[; ]))", opening):
@@ -41,9 +44,6 @@ class GameState(object):
                     raise Exception(f"Opening {opening} was invalid, completed the game at move {move_idx}: {move}.")
                 
                 move_idx += 1
-
-        self.retries = invalid_retries
-        self.retry_limit = invalid_retries
 
     @staticmethod
     def init_terminal_game(outcome, w_player_id, p_names = ["Stockfish", "GPT"], ratings = None):
