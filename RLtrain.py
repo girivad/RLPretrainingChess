@@ -238,7 +238,7 @@ try:
                 tokenizer_path = tokenizer_path, self_play = self_play, sf_time = 0.1,
                 use_opening_book = use_opening_book,
                 group_size = group_size if baseline == "GRPO" else 1,
-                sf_rating_games = None
+                sf_rating_games = None, invalid_retries = invalid_retries
             )
             P = P[:, 1:] # B x (S - 1)
             G = G.to(device)
