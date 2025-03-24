@@ -1,8 +1,8 @@
 import os
 
-pretrain_run_name = "2-6layer_moves_mtp_lichess 2025-03-04 15:49:08.372986-08:00"
+pretrain_run_name = "ntp_lichess 2025-03-05 19:39:30.836936-08:00"
 ckpt_num = 600000
-run_name = f"RL 2-6layer_moves_mtp_lichess {ckpt_num}"
+run_name = f"RL 8layer_moves_ntp_lichess {ckpt_num}"
 init_from = "pretrain"
 model_dir = "../../model_vol/"
 
@@ -10,7 +10,7 @@ out_dir = os.path.join(model_dir, pretrain_run_name, f"ckpt_{ckpt_num}")
 eval_interval = 500
 eval_iters = 100
 hifi_eval_interval = 2500
-hifi_eval_iters = 300 # 1500
+hifi_eval_iters = 300
 ckpt_interval = 500
 # I'm not sure what's going on, but when log_interval == 100, the time per iter is inaccurate and much longer than it should be
 # when running on multiple GPUs. TODO: investigate
@@ -32,8 +32,8 @@ tok_type = "move"
 tokenizer_path = "./tokenizer/tokenizers/move_token.pkl"
 
 # baby GPT model :)
-n_slayer = 2
-n_layer = 6
+n_slayer = 0
+n_layer = 8
 n_head = 8
 n_embd = 512
 dropout = 0.1 # for pretraining 0 is good, for finetuning try 0.1+
