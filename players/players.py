@@ -76,7 +76,7 @@ class GPTPlayer(object):
         game_states = red_game_states
         games = red_games            
 
-        temperature = torch.tensor([min((game_state.retry_limit - game_state.retries)/(game_state.retry_limit) * 1 + 0.001, 0.5) for game_state in game_states])
+        temperature = torch.tensor([min((game_state.retry_limit - game_state.retries)/(game_state.retry_limit) * 1 + 0.001, 0.5) if game_state.retry_limit != 0 else 1 for game_state in game_states])
         idx_moves = self.model.module.generate_moves(games, device = self.device, max_move_size = self.max_move_size, overwrite_spaces = True, temperature = temperature, top_k = self.k)
         str_moves = self.detokenizer(idx_moves, batch = True)
         # if self.device == "cuda:0":
