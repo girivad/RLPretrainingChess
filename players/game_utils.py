@@ -29,7 +29,7 @@ class GameState(object):
 
                 self.players[p_idx] = self.players[p_idx] + "-" + str(self.ratings[p_idx])
 
-        if len(opening) > 0:
+        if opening is not None and len(opening) > 0:
             move_idx = 0
             for move in re.split("(?:(?:[0-9]+\.)|(?:[; ]))", opening):
                 if len(move) == 0:

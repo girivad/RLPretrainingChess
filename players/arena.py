@@ -52,7 +52,7 @@ class Arena(object):
             for game in self.init_games:
                 game.write_outcome(write_out)
         else:
-            assert len(self.init_games) == 0, f"Given {len(self.init_games)} initialization games in data collection phase."
+            assert self.init_games is None or len(self.init_games) == 0, f"Given {len(self.init_games)} initialization games in data collection phase."
             G = None # B x S
             P = None # B x (S - 1)
             R = [] # B x 0 
@@ -60,12 +60,16 @@ class Arena(object):
         games_played = 0
         game_order = [None] * total_games
 
-        game_openings = random.choices(openings, k = total_games // group_size)
-        game_openings = sum([[opening] * group_size for opening in game_openings], [])
-        game_perspectives = random.choices([0, 1], k = total_games // group_size)
-        game_perspectives = sum([[perspective] * group_size for perspective in game_perspectives], [])
+        if len(openings) > 0:
+            game_openings = random.choices(openings, k = total_games // group_size)
+            game_openings = sum([[opening] * group_size for opening in game_openings], [])
+            game_perspectives = random.choices([0, 1], k = total_games // group_size)
+            game_perspectives = sum([[perspective] * group_size for perspective in game_perspectives], [])
 
-        game_states = [GameState(idx, self.adjudicator, self.p_names, [random.choice(range(1350, 2850, 100)) if "Stockfish" in p_name else None for p_name in self.p_names], opening = game_openings[idx], w_player_id = game_perspectives[idx]) for idx in range(self.eval_bsz)]
+            game_states = [GameState(idx, self.adjudicator, self.p_names, [random.choice(range(1350, 2850, 100)) if "Stockfish" in p_name else None for p_name in self.p_names], opening = game_openings[idx], w_player_id = game_perspectives[idx]) for idx in range(self.eval_bsz)]
+        else:
+            game_states = [GameState(idx, self.adjudicator, self.p_names, [random.choice(range(1350, 2850, 100)) if "Stockfish" in p_name else None for p_name in self.p_names], opening = "", w_player_id = random.randint(0, 1)) for idx in range(self.eval_bsz)]
+
         base_game_id = self.eval_bsz
 
         move_num = 0
@@ -97,7 +101,11 @@ class Arena(object):
 
                 game_states = reduced_game_states
                 new_games = min(self.eval_bsz - len(game_states), total_games - (games_played + len(game_states))) # Min(Bsz - reduced_games, total_games - (games_played + reduced_games))
-                game_states += [GameState(base_game_id + game_id, self.adjudicator, self.p_names, [random.choice(range(1350, 2850, 100)) if "Stockfish" in p_name else None for p_name in self.p_names], opening = game_openings[base_game_id + game_id], w_player_id = game_perspectives[base_game_id + game_id]) for game_id in range(new_games)]
+                if len(openings) > 0:
+                    game_states += [GameState(base_game_id + game_id, self.adjudicator, self.p_names, [random.choice(range(1350, 2850, 100)) if "Stockfish" in p_name else None for p_name in self.p_names], opening = game_openings[base_game_id + game_id], w_player_id = game_perspectives[base_game_id + game_id]) for game_id in range(new_games)]
+                else:
+                    game_states += [GameState(base_game_id + game_id, self.adjudicator, self.p_names, [random.choice(range(1350, 2850, 100)) if "Stockfish" in p_name else None for p_name in self.p_names], w_player_id = random.randint(0, 1)) for game_id in range(new_games)]
+
                 base_game_id += new_games
 
         if write_out:
@@ -121,7 +129,7 @@ def collate_games(files: List[str], write_out: str):
     for file in files:
         local_pgn = open(file, "rb")
         stream = local_pgn.read(STREAM_SIZE)
-        while len(stream) > 0 and stream is not None:
+        while stream is not None and len(stream) > 0:
             global_pgn.write(stream)
             stream = local_pgn.read(STREAM_SIZE)
         
@@ -181,7 +189,7 @@ def sample_games(pi_theta, total_games, bsz, rank, tok_type = "move", tokenizer_
 
     arena = Arena(p0, p1, bsz, rank, tokenize, init_games = synthetic_games)
 
-    openings = None
+    openings = []
     if use_opening_book:
         openings = get_openings()
 
