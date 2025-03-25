@@ -47,5 +47,5 @@ compile = True
 
 # Evaluation
 tok_type = "char"
-tokenizer_path = "./tokenizer/tokenizers/char_tokenizer.pkl"
+tokenizer_path = "./tokenizer/tokenizers/char_token.pkl"
 invalid_retries = 5
