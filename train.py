@@ -25,9 +25,10 @@ from contextlib import nullcontext
 import numpy as np
 import torch
 from torch.nn.parallel import DistributedDataParallel as DDP
-from torch.distributed import init_process_group, destroy_process_group
+from torch.distributed import init_process_group, destroy_process_group, barrier
 
 from model import GPTConfig, GPT, name_losses
+from players.arena import estimate_elo
 
 # -----------------------------------------------------------------------------
 # default config values designed to train a gpt2 (124M) on OpenWebText
@@ -37,6 +38,7 @@ eval_interval = 2000
 ckpt_interval = 50000
 log_interval = 1
 eval_iters = 200
+hifi_eval_interval = 400
 eval_only = False # if True, script exits right after the first eval
 always_save_checkpoint = True # if True, always save a checkpoint after each eval
 init_from = 'scratch' # 'scratch' or 'resume' or 'gpt2*'
@@ -72,6 +74,10 @@ decay_lr = True # whether to decay the learning rate
 warmup_iters = 2000 # how many steps to warm up for
 lr_decay_iters = 600000 # should be ~= max_iters per Chinchilla
 min_lr = 6e-5 # minimum learning rate, should be ~= learning_rate/10 per Chinchilla
+# Evaluation Settings
+tok_type = "move"
+tokenizer_path = "./tokenizer/tokenizers/move_tokenizer.pkl"
+invalid_retries = 5
 # DDP settings
 backend = 'nccl' # 'nccl', 'gloo', etc.
 # system
@@ -248,6 +254,13 @@ local_iter_num = 0 # number of iterations in the lifetime of this process
 raw_model = model.module if ddp else model # unwrap DDP container if needed
 running_mfu = -1.0
 
+if ddp:
+    wait = lambda: barrier()
+else:
+    wait = lambda: None
+
+elo, lw_bd, up_bd = 0, 0, 0
+
 while True:
     
     # determine and set the learning rate for this iteration
@@ -255,9 +268,19 @@ while True:
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
 
+    # Additional Eval: Calculate Elo
+    if iter_num % hifi_eval_interval == 0:
+        with torch.no_grad():
+                elo, lw_bd, up_bd = estimate_elo(
+                    model, batch_size, eval_iters, ddp_local_rank, f"./pgn/{iter_num}", 
+                    wait, tok_type = tok_type, tokenizer_path = tokenizer_path, world_size = ddp_world_size, use_opening_book = True,
+                    invalid_retries = invalid_retries
+                )
+
     # evaluate the loss on train/val sets and write checkpoints
     if iter_num % eval_interval == 0 and master_process:
         losses = estimate_loss()
+
         print(f"step {iter_num}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
         if wandb_log:
             wandb.log({
@@ -266,6 +289,9 @@ while True:
                 "val/loss": losses['val'],
                 "lr": lr,
                 "mfu": running_mfu*100, # convert to percentage
+                "elo_up": up_bd,
+                "elo_lw": lw_bd,
+                "elo": elo,
             })
         if losses['val'] < best_val_loss or (always_save_checkpoint and iter_num % ckpt_interval == 0):
             best_val_loss = losses['val']
@@ -277,6 +303,9 @@ while True:
                     'iter_num': iter_num,
                     'best_val_loss': best_val_loss,
                     'config': config,
+                    "elo_up": up_bd,
+                    "elo_lw": lw_bd,
+                    "elo": elo,
                 }
                 ckpt_dir = os.path.join(out_dir, f"ckpt_{iter_num}")
                 if not os.path.isdir(ckpt_dir):

@@ -2,11 +2,12 @@ import os
 
 model_dir = "../../model_vol"
 data_dir = "../../model_vol/data_dir/pretrain"
-run_name = "8layer_ntp_lichess"
+run_name = "reproduction_8layer_ntp_lichess"
 
 out_dir = os.path.join(model_dir, run_name)
 eval_interval = 4000
 eval_iters = 100
+hifi_eval_interval = 32000
 ckpt_interval = 50000
 # I'm not sure what's going on, but when log_interval == 100, the time per iter is inaccurate and much longer than it should be
 # when running on multiple GPUs. TODO: investigate
@@ -30,6 +31,10 @@ n_head = 8
 n_embd = 512
 dropout = 0.0 # for pretraining 0 is good, for finetuning try 0.1+
 bias = False # do we use bias inside LayerNorm and Linear layers?
+vocab_size = 29
+
+# aux losses
+aux_seer_loss = False
 
 learning_rate = 3e-4
 max_iters = 600000
@@ -39,3 +44,8 @@ beta2 = 0.95  # make a bit bigger because number of tokens per iter is small
 
 warmup_iters = 2000  # not super necessary potentially
 compile = True
+
+# Evaluation
+tok_type = "char"
+tokenizer_path = "./tokenizer/tokenizers/char_tokenizer.pkl"
+invalid_retries = 5
