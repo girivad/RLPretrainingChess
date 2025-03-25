@@ -1,7 +1,7 @@
 import os
 
 model_dir = "../../model_vol"
-data_dir = "../../model_vol/data_dir/pretrain"
+data_dir = "../../model_vol/data_dir/pretrain_char"
 run_name = "reproduction_8layer_ntp_lichess"
 
 out_dir = os.path.join(model_dir, run_name)
