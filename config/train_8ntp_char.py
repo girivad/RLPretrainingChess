@@ -7,7 +7,7 @@ run_name = "reproduction_8layer_ntp_lichess"
 out_dir = os.path.join(model_dir, run_name)
 eval_interval = 4000
 eval_iters = 100
-hifi_eval_interval = 32000
+hifi_eval_interval = 196000
 ckpt_interval = 50000
 # I'm not sure what's going on, but when log_interval == 100, the time per iter is inaccurate and much longer than it should be
 # when running on multiple GPUs. TODO: investigate
