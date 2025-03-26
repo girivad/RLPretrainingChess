@@ -19,6 +19,7 @@ $ torchrun --nproc_per_node=8 --nnodes=2 --node_rank=1 --master_addr=123.456.123
 import os
 import time
 from contextlib import nullcontext
+import re
 
 import numpy as np
 import torch
@@ -29,6 +30,7 @@ import torch.nn.functional as F
 from model import GPTConfig, GPT
 from utils import smooth
 from players.arena import sample_games, estimate_elo
+from tokenizer.scripts.tokenizer import load_tokenizer
 
 # -----------------------------------------------------------------------------
 # default config values designed to train a gpt2 (124M) on OpenWebText
@@ -218,13 +220,19 @@ running_mfu = -1.0
 
 pi_ref.eval()
 
-# tok, detok = load_tokenizer(hf_tokenizer, tokenizer_dir)
-# game_transcript = ''';d4 g6 Nf3 Bg7 g4 Nh6 e4 b6 h3 d6 e5 b5 Bxb5+ Bd7 Bd3 f5 '''
-# input_toks = torch.tensor(tok(game_transcript)).view(1, -1).type(torch.long).to(device)
-# gen_toks = pi_theta.module.generate(input_toks, 20)
+# tok, detok, _ = load_tokenizer(tok_type, tokenizer_path)
+# game_transcript = ''';1. d4 d5 2. c4 e6 3. a3 Nf6 4. Nc3 c6 5. cxd5 cxd5 6. Bg5 h6 7. Bh4 g5 8. Bg3 Nc6 9. h3 Bg7 10. e3 O-O 11. Bd3 a6 12. Bc2 b5 13. e4 dxe4 14. Nxe4 Nxe4 15. Bxe4 Qa5+ 16. b4 Qb6 17. Ne2 Nxd4 18. Ra2 Rb8 19. O-O Rd8 20. Nxd4 Bxd4 21. Rd2 Bb7 22. Bb1 Qc6 23. Qf3 Qxf3 24. gxf3 e5 25. Be4 Kg7 26. Bxb7 Rxb7 27. Bxe5+ Bxe5 28. Rxd8 Bf6 29. Rfd1 g4 30. fxg4 Bxd8 31. Rxd8 Rc7 32. Kg2 Rc3 33. Rd2 Rxa3 34. Rb2 Ra4 35. Kg3 Ra3+ 36. Kh4 Kg6 37. f4 Rd3 38. Ra2 Rd4 39. Rxa6+ Kg7 40. f5 Rxb4 41. Kh5 f6 42. Ra7+ Kf8 43. Kxh6 Rb3 44. Kg6 Rxh3 45. Kxf6 Rh6+ 46. Kg5 Rb6 47. f6 b4 48. Kg6 Ke8 49. Kg7 b3 50. f7+ Kd8'''
+# game_transcript = re.sub("[0-9]+\. ", "", game_transcript)
+# input_toks = torch.tensor(tok(game_transcript, pgn = True)).view(1, -1).type(torch.long).to(device)
+# print("Input Toks Size:", input_toks.size())
+# print("UCI Conversion:", detok(input_toks[0]))
+# gen_toks = pi_theta.module.generate(input_toks, 20)[0]
+# print("Gen Toks Size:", gen_toks.size())
 # if master_process:
 #     print(detok(gen_toks))
 
+# if ddp:
+#     destroy_process_group()
 # exit(0)
 
 try:
