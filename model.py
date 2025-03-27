@@ -513,7 +513,7 @@ class GPT(nn.Module):
         return idx
     
     @torch.no_grad()
-    def generate_moves(self, games, device, max_move_size = 5, overwrite_spaces = True, temperature = 1.0, top_k = None):
+    def generate_moves(self, games, device, max_move_size = 5, overwrite_spaces = True, temperature = 1.0, top_k = None, space_token = SPACE_TOKEN, eos_token = EOS_TOKEN):
         """
         Take a list of tokenized games. Autoregressively predict the next move with up to max_move_size tokens for each game, and output as token ids.
         """
@@ -530,14 +530,14 @@ class GPT(nn.Module):
         
         pmpt_msk = games_tensor >= 0
         mv_msk = games_tensor == -1
-        sp_msk = games_tensor == SPACE_TOKEN
+        sp_msk = games_tensor == space_token
 
         for token in range(min_prompt_len, max_token):
             next_tokens = self.generate_token(games_tensor[:, :token], temperature = temperature, top_k = top_k).view(-1)
             # Store next tokens if it is writing into an allotted move slot (within the max_move_size)
             # Can only overwrite a space if terminating the game (i.e. resigning).
             games_tensor[:, token] = torch.where(
-                ~pmpt_msk[:, token] | (overwrite_spaces & sp_msk[:, token] & next_tokens == EOS_TOKEN), 
+                ~pmpt_msk[:, token] | (overwrite_spaces & sp_msk[:, token] & next_tokens == eos_token), 
                 next_tokens, 
                 games_tensor[:, token]
             )
