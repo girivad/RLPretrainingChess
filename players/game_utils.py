@@ -60,18 +60,25 @@ class GameState(object):
 
         if w_cp > 100: # White has a 100 centipawn advantage
             self.outcome = "1-0"
-            self.termination = f"Max Context Length: \'{self.w_player_id}\' has centipawn advantage."
+            self.termination = f"Max Context Length: \'{self.players[self.w_player_id]}\' has centipawn advantage."
         elif w_cp < -100:
             self.outcome = "0-1"
-            self.termination = f"Max Context Length: \'{1 - self.w_player_id}\' has centipawn advantage."
+            self.termination = f"Max Context Length: \'{self.players[1 - self.w_player_id]}\' has centipawn advantage."
         else:
             self.outcome = "1/2-1/2"
             self.termination = f"Max Context Length: No Centipawn advantage; Draw."
+
+        if self.game_id == 0:
+            print(self.termination)
 
     def draw(self): 
         self.outcome = "1/2-1/2"
         if self.termination == "":
             self.termination = "Draw"
+
+        if self.game_id == 0:
+            print(self.termination)
+
 
     def resign(self):
         w_outcome = 0 if self.turn == self.w_player_id else 1
@@ -82,13 +89,19 @@ class GameState(object):
         )
 
         if self.termination == "":
-            self.termination = f"Resignation: \'{self.turn}\' resigned."
+            self.termination = f"Resignation: \'{self.players[self.turn]}\' resigned."
+        
+        if self.game_id == 0:
+            print(self.termination)
 
     def register_move(self, move: str, parse_move: str = "uci"):
         move_failed = False
         move_str = move
 
         assert type(move) == str, (move, type(move))
+
+        if self.game_id == 0:
+            print("Register Move:", move)
 
         if parse_move is not None:
             try:
@@ -98,24 +111,36 @@ class GameState(object):
                     move = self.board.parse_uci(move)
             except IllegalMoveError:
                 if self.retries > 0:
+                    if self.game_id == 0:
+                        print(self.termination)
+                        print("Retrying move...")
+                    self.termination = ""
                     self.retries -= 1
                     return
 
-                self.termination = f"Illegal Move: \'{move}\' given context: \'{self.state}\'; Player: \'{self.turn}\'"
+                self.termination = f"Illegal Move: \'{move}\' given context: \'{self.state}\'; Player: \'{self.players[self.turn]}\'"
                 move_failed = True
             except InvalidMoveError:
                 if self.retries > 0:
+                    if self.game_id == 0:
+                        print(self.termination)
+                        print("Retrying move...")
+                    self.termination = ""
                     self.retries -= 1
                     return
 
-                self.termination = f"Invalid Move: \'{move}\' given context: \'{self.state}\'; Player: \'{self.turn}\'"
+                self.termination = f"Invalid Move: \'{move}\' given context: \'{self.state}\'; Player: \'{self.players[self.turn]}\'"
                 move_failed = True
             except AmbiguousMoveError:
                 if self.retries > 0:
+                    if self.game_id == 0:
+                        print(self.termination)
+                        print("Retrying move...")
+                    self.termination = ""
                     self.retries -= 1
                     return
 
-                self.termination = f"Ambiguous Move: \'{move}\' given context: \'{self.state}\'; Player: \'{self.turn}\'"
+                self.termination = f"Ambiguous Move: \'{move}\' given context: \'{self.state}\'; Player: \'{self.players[self.turn]}\'"
                 move_failed = True
             except Exception as err:
                 print("Error:", err, "from parsing move", move_str)
@@ -145,6 +170,8 @@ class GameState(object):
             return
         
         self.outcome = self.board.result()
+        if self.game_id == 0:
+            print("Outcome Decided:", self.outcome, outcome, self.players[self.w_player_id], self.players[1 - self.w_player_id])
 
     def is_complete(self):
         return self.outcome != "" and self.outcome is not None
