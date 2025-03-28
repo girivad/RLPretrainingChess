@@ -1,22 +1,28 @@
 import random, chess, re
 from chess import IllegalMoveError, InvalidMoveError, AmbiguousMoveError
+import chess.pgn
 
 STREAM_SIZE = 1024 ** 3
 
 class GameState(object):
-    def __init__(self, game_id, sf_engine, players = ["Stockfish", "GPT"], ratings = None, opening = "", w_player_id = 0, invalid_retries = 0):
+    def __init__(self, game_id, sf_engine, players = ["Stockfish", "GPT"], ratings = None, opening = "", w_player_id = 0, invalid_retries = 0, format = "uci", include_idx = False):
         self.game_id = game_id
         
         self.board = chess.Board()
-        self.state = ";"
-        self.G = [";"]
+        if format == "pgn":
+            self.node = chess.pgn.Game()
+        self.state = ";1." if format == "pgn" and include_idx else ";"
+        self.G = [self.state]
         self.P = [0]
         self.turn = w_player_id
-        self.w_player_id = self.turn
+        self.w_player_id = w_player_id
         
         self.outcome = ""
         self.termination = ""
         self.sf_engine = sf_engine
+
+        self.format = format
+        self.include_idx = include_idx
         
         self.players = [p_name for p_name in players]
 
@@ -32,8 +38,8 @@ class GameState(object):
         self.retries = invalid_retries
         self.retry_limit = invalid_retries
 
+        self.move_idx = 1
         if opening is not None and len(opening) > 0:
-            move_idx = 0
             for move in re.split("(?:(?:[0-9]+\.)|(?:[; ]))", opening):
                 if len(move) == 0:
                     continue
@@ -41,10 +47,8 @@ class GameState(object):
                 self.register_move(move, parse_move = "san")
 
                 if self.is_complete():
-                    raise Exception(f"Opening {opening} was invalid, completed the game at move {move_idx}: {move}.")
+                    raise Exception(f"Opening {opening} was invalid, completed the game at move {self.move_idx}: {move}.")
                 
-                move_idx += 1
-
     @staticmethod
     def init_terminal_game(outcome, w_player_id, p_names = ["Stockfish", "GPT"], ratings = None):
         game_state = GameState(-1, None, p_names, ratings)
@@ -79,7 +83,6 @@ class GameState(object):
         if self.game_id == 0:
             print(self.termination)
 
-
     def resign(self):
         w_outcome = 0 if self.turn == self.w_player_id else 1
         assert w_outcome is not None
@@ -94,64 +97,72 @@ class GameState(object):
         if self.game_id == 0:
             print(self.termination)
 
-    def register_move(self, move: str, parse_move: str = "uci"):
+    def register_move(self, input_move: str, parse_move: str = "uci"):
         move_failed = False
-        move_str = move
+        move_str = input_move
 
-        assert type(move) == str, (move, type(move))
+        assert type(input_move) == str, (input_move, type(input_move))
 
         if self.game_id == 0:
-            print("Register Move:", move)
+            print("Register Move:", input_move)
 
-        if parse_move is not None:
-            try:
-                if parse_move == "san":
-                    move = self.board.parse_san(move)
-                elif parse_move == "uci":
-                    move = self.board.parse_uci(move)
-            except IllegalMoveError:
-                if self.retries > 0:
-                    if self.game_id == 0:
-                        print(self.termination)
-                        print("Retrying move...")
-                    self.termination = ""
-                    self.retries -= 1
-                    return
+        try:
+            if parse_move == "san":
+                move = self.board.parse_san(input_move)
+            elif parse_move == "uci":
+                move = self.board.parse_uci(input_move)
+        except IllegalMoveError:
+            if self.retries > 0:
+                if self.game_id == 0:
+                    print(self.termination)
+                    print("Retrying move...")
+                self.termination = ""
+                self.retries -= 1
+                return
 
-                self.termination = f"Illegal Move: \'{move}\' given context: \'{self.state}\'; Player: \'{self.players[self.turn]}\'"
-                move_failed = True
-            except InvalidMoveError:
-                if self.retries > 0:
-                    if self.game_id == 0:
-                        print(self.termination)
-                        print("Retrying move...")
-                    self.termination = ""
-                    self.retries -= 1
-                    return
+            self.termination = f"Illegal Move: \'{move_str}\' given context: \'{self.state}\'; Player: \'{self.players[self.turn]}\'"
+            move_failed = True
+        except InvalidMoveError:
+            if self.retries > 0:
+                if self.game_id == 0:
+                    print(self.termination)
+                    print("Retrying move...")
+                self.termination = ""
+                self.retries -= 1
+                return
 
-                self.termination = f"Invalid Move: \'{move}\' given context: \'{self.state}\'; Player: \'{self.players[self.turn]}\'"
-                move_failed = True
-            except AmbiguousMoveError:
-                if self.retries > 0:
-                    if self.game_id == 0:
-                        print(self.termination)
-                        print("Retrying move...")
-                    self.termination = ""
-                    self.retries -= 1
-                    return
+            self.termination = f"Invalid Move: \'{move_str}\' given context: \'{self.state}\'; Player: \'{self.players[self.turn]}\'"
+            move_failed = True
+        except AmbiguousMoveError:
+            if self.retries > 0:
+                if self.game_id == 0:
+                    print(self.termination)
+                    print("Retrying move...")
+                self.termination = ""
+                self.retries -= 1
+                return
 
-                self.termination = f"Ambiguous Move: \'{move}\' given context: \'{self.state}\'; Player: \'{self.players[self.turn]}\'"
-                move_failed = True
-            except Exception as err:
-                print("Error:", err, "from parsing move", move_str)
-                move_failed = True
-            if not bool(move):
-                self.termination = f"Parsed Null Move."
-                move_failed = True
+            self.termination = f"Ambiguous Move: \'{move_str}\' given context: \'{self.state}\'; Player: \'{self.players[self.turn]}\'"
+            move_failed = True
+        except Exception as err:
+            print("Error:", err, "from parsing move", move_str)
+            move_failed = True
 
-        self.state += str(move) + " "
+        if not bool(move):
+            self.termination = f"Parsed Null Move."
+            move_failed = True
 
-        self.G.append(str(move) + " ")
+        if not move_failed and self.format == "pgn":
+            self.node = self.node.add_variation(move)
+
+        if not move_failed:
+            move_str = move.uci() if self.format == "uci" else str(self.node).split(" ")[-1]
+            move_str += " "
+
+        self.state += move_str
+        if self.game_id == 0:
+            print("State:", self.state)
+        self.G.append(move_str)
         player_type = (-1 ** (1 * (self.turn != self.w_player_id))) if "GPT" in self.players[self.turn] else 0
         self.P.append(player_type)
         assert len(self.G) == len(self.P)
@@ -167,11 +178,18 @@ class GameState(object):
 
         if outcome is None:
             self.turn = 1 - self.turn
+
+            if self.format == "pgn" and self.turn == self.w_player_id:
+                self.move_idx += 1
+
+            if self.format == "pgn" and self.turn == self.w_player_id and self.include_idx:
+                self.state += f"{self.move_idx}."
+                self.G.append(f"{self.move_idx}.")
+                self.P.append(0)
+
             return
-        
+                
         self.outcome = self.board.result()
-        if self.game_id == 0:
-            print("Outcome Decided:", self.outcome, outcome, self.players[self.w_player_id], self.players[1 - self.w_player_id])
 
     def is_complete(self):
         return self.outcome != "" and self.outcome is not None
