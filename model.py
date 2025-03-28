@@ -527,6 +527,7 @@ class GPT(nn.Module):
             device = device
         )
         
+        prmpt_msk = games_tensor >= 0
         mv_msk = games_tensor == -1
         sp_msk = games_tensor == space_token
 
@@ -543,17 +544,20 @@ class GPT(nn.Module):
 
             min_prompt_len = max(min(min_prompt_len, mpl), 1)
 
-        for token in range(min_prompt_len, max_token):
+        for token in range(min_prompt_len, max_token):        
+            if torch.all(prmpt_msk[:, token]) and not (overwrite_spaces and torch.any(sp_msk[:, token])):
+                continue
+
             next_tokens = self.generate_token(games_tensor[:, :token], temperature = temperature, top_k = top_k).view(-1)
             # Store next tokens if it is writing into an allotted move slot (within the max_move_size)
             # Can only overwrite a space if terminating the game (i.e. resigning).
-            write_msk = mv_msk[:, token] | (overwrite_spaces & sp_msk[:, token] & next_tokens == eos_token)
+            write_msk = ~prmpt_msk[:, token] | (overwrite_spaces & sp_msk[:, token] & next_tokens == eos_token)
             games_tensor[:, token] = torch.where(
                 write_msk, 
                 next_tokens, 
                 games_tensor[:, token]
             )
-            mv_msk[:, token] = write_msk
+            mv_msk[:, token] = mv_msk[:, token] | (overwrite_spaces & sp_msk[:, token] & next_tokens == eos_token)
         
         return [
             [idx_tensor.item() for idx_tensor in games_tensor[s, mv_msk[s]]]
