@@ -104,7 +104,7 @@ class GameState(object):
         assert type(input_move) == str, (input_move, type(input_move))
 
         if self.game_id == 0:
-            print("Register Move:", input_move)
+            print(f"Register Move: \'{input_move}\'")
 
         try:
             if parse_move == "san":
@@ -148,7 +148,7 @@ class GameState(object):
             print("Error:", err, "from parsing move", move_str)
             move_failed = True
 
-        if not bool(move):
+        if not move_failed and not bool(move):
             self.termination = f"Parsed Null Move."
             move_failed = True
 
@@ -161,7 +161,7 @@ class GameState(object):
 
         self.state += move_str
         if self.game_id == 0:
-            print("State:", self.state)
+            print(f"State: \'{self.state}\'")
         self.G.append(move_str)
         player_type = (-1 ** (1 * (self.turn != self.w_player_id))) if "GPT" in self.players[self.turn] else 0
         self.P.append(player_type)
