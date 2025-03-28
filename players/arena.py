@@ -34,7 +34,7 @@ def update_gpr(g, G, p, P, r, R, tokenize):
     return G, P, R
 
 class Arena(object):
-    def __init__(self, player0: StockfishPlayer | GPTPlayer, player1: StockfishPlayer | GPTPlayer, eval_bsz, rank, tokenize = None, init_games: List[GameState] = [], invalid_retries = 0):
+    def __init__(self, player0: StockfishPlayer | GPTPlayer, player1: StockfishPlayer | GPTPlayer, eval_bsz, rank, tokenize = None, init_games: List[GameState] = [], invalid_retries = 0, game_format = "uci", include_idx = False):
         self.player0 = player0
         self.player1 = player1
         self.p_names = [self.player0.name(), self.player1.name()]
@@ -47,6 +47,8 @@ class Arena(object):
         self.init_games = [game for game in init_games]
 
         self.invalid_retries = invalid_retries
+        self.game_format = game_format
+        self.include_idx = include_idx
 
     def run_games(self, total_games: int, write_out = None, openings = [], group_size = 1):
         if write_out:
@@ -74,9 +76,9 @@ class Arena(object):
             game_perspectives = sum([[perspective] * group_size for perspective in game_perspectives], [])
             print("Spread Perspectives:", len(game_perspectives))
 
-            game_states = [GameState(idx, self.adjudicator, self.p_names, [random.choice(range(1350, 1550, 100)) if "Stockfish" in p_name else None for p_name in self.p_names], opening = game_openings[idx], w_player_id = game_perspectives[idx], invalid_retries = self.invalid_retries) for idx in range(self.eval_bsz)]
+            game_states = [GameState(idx, self.adjudicator, self.p_names, [random.choice(range(1350, 1550, 100)) if "Stockfish" in p_name else None for p_name in self.p_names], opening = game_openings[idx], w_player_id = game_perspectives[idx], invalid_retries = self.invalid_retries, format = self.game_format, include_idx = self.include_idx) for idx in range(self.eval_bsz)]
         else:
-            game_states = [GameState(idx, self.adjudicator, self.p_names, [random.choice(range(1350, 1550, 100)) if "Stockfish" in p_name else None for p_name in self.p_names], opening = "", w_player_id = random.randint(0, 1), invalid_retries = self.invalid_retries) for idx in range(self.eval_bsz)]
+            game_states = [GameState(idx, self.adjudicator, self.p_names, [random.choice(range(1350, 1550, 100)) if "Stockfish" in p_name else None for p_name in self.p_names], opening = "", w_player_id = random.randint(0, 1), invalid_retries = self.invalid_retries, format = self.game_format, include_idx = self.include_idx) for idx in range(self.eval_bsz)]
 
         base_game_id = self.eval_bsz
 
@@ -113,9 +115,9 @@ class Arena(object):
                 game_states = reduced_game_states
                 new_games = min(self.eval_bsz - len(game_states), total_games - (games_played + len(game_states))) # Min(Bsz - reduced_games, total_games - (games_played + reduced_games))
                 if len(openings) > 0:
-                    game_states += [GameState(base_game_id + game_id, self.adjudicator, self.p_names, [random.choice(range(1350, 1550, 100)) if "Stockfish" in p_name else None for p_name in self.p_names], opening = game_openings[base_game_id + game_id], w_player_id = game_perspectives[base_game_id + game_id], invalid_retries = self.invalid_retries) for game_id in range(new_games)]
+                    game_states += [GameState(base_game_id + game_id, self.adjudicator, self.p_names, [random.choice(range(1350, 1550, 100)) if "Stockfish" in p_name else None for p_name in self.p_names], opening = game_openings[base_game_id + game_id], w_player_id = game_perspectives[base_game_id + game_id], invalid_retries = self.invalid_retries, format = self.game_format, include_idx = self.include_idx) for game_id in range(new_games)]
                 else:
-                    game_states += [GameState(base_game_id + game_id, self.adjudicator, self.p_names, [random.choice(range(1350, 1550, 100)) if "Stockfish" in p_name else None for p_name in self.p_names], w_player_id = random.randint(0, 1), invalid_retries = self.invalid_retries) for game_id in range(new_games)]
+                    game_states += [GameState(base_game_id + game_id, self.adjudicator, self.p_names, [random.choice(range(1350, 1550, 100)) if "Stockfish" in p_name else None for p_name in self.p_names], w_player_id = random.randint(0, 1), invalid_retries = self.invalid_retries, format = self.game_format, include_idx = self.include_idx) for game_id in range(new_games)]
 
                 base_game_id += new_games
 
@@ -181,7 +183,7 @@ def sample_sf_games_fast(ratings, games_per_pair = 20):
 
     return [GameState.init_terminal_game(outcome, 0, ["Stockfish", "Stockfish"], [w_elo, b_elo]) for w_elo, b_elo, outcome in zip(elos[:, 0], elos[:, 1], outcomes)]
 
-def sample_games(pi_theta, total_games, bsz, rank, tok_type = "move", tokenizer_path = "./tokenizer/tokenizers/move_token.pkl", self_play = False, write_out = None, sf_rating_games = "fast", sf_time = 0.1, use_opening_book = False, group_size = 1, invalid_retries = 0):
+def sample_games(pi_theta, total_games, bsz, rank, tok_type = "move", tokenizer_path = "./tokenizer/tokenizers/move_token.pkl", self_play = False, write_out = None, sf_rating_games = "fast", sf_time = 0.1, use_opening_book = False, group_size = 1, invalid_retries = 0, game_format = "uci", include_idx = False):
     synthetic_games = []
     if sf_rating_games == "fast":
         sf_ratings = range(1350, 1550, 100)
@@ -198,7 +200,7 @@ def sample_games(pi_theta, total_games, bsz, rank, tok_type = "move", tokenizer_
     if write_out is None:
         tokenize, _, _ = load_tokenizer(tok_type, tokenizer_path)
 
-    arena = Arena(p0, p1, bsz, rank, tokenize, init_games = synthetic_games, invalid_retries = invalid_retries)
+    arena = Arena(p0, p1, bsz, rank, tokenize, init_games = synthetic_games, invalid_retries = invalid_retries, game_format = game_format, include_idx = include_idx)
 
     openings = []
     if use_opening_book:
@@ -248,8 +250,8 @@ def calc_elo(pgn_file):
     
     return elo, lw_bd, up_bd
 
-def estimate_elo(pi_theta, eval_bsz, eval_games, rank, write_out, wait, tok_type = "move", tokenizer_path = "./tokenizer/tokenizers/move_token.pkl", world_size = None, use_opening_book = True, invalid_retries = 0):
-    sample_games(pi_theta, eval_games, eval_bsz, rank, tok_type, tokenizer_path, write_out = write_out, use_opening_book = use_opening_book, invalid_retries = invalid_retries)
+def estimate_elo(pi_theta, eval_bsz, eval_games, rank, write_out, wait, tok_type = "move", tokenizer_path = "./tokenizer/tokenizers/move_token.pkl", world_size = None, use_opening_book = True, invalid_retries = 0, game_format = "uci", include_idx = False):
+    sample_games(pi_theta, eval_games, eval_bsz, rank, tok_type, tokenizer_path, write_out = write_out, use_opening_book = use_opening_book, invalid_retries = invalid_retries, game_format = game_format, include_idx = include_idx)
     wait()
     if rank == 0:
         assert world_size is not None
