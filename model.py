@@ -518,7 +518,6 @@ class GPT(nn.Module):
         Take a list of tokenized games. Autoregressively predict the next move with up to max_move_size tokens for each game, and output as token ids.
         """
        
-        min_prompt_len = max(min((len(game) for game in games)) - 1, 1)
         max_prompt_len = max((len(game) for game in games))
         max_token = max_prompt_len + max_move_size
         games_tensor = torch.tensor(
@@ -531,6 +530,19 @@ class GPT(nn.Module):
         pmpt_msk = games_tensor >= 0
         mv_msk = games_tensor == -1
         sp_msk = games_tensor == space_token
+
+        min_prompt_len = 1
+        for game_idx in range(games_tensor.size(0)):
+            mpl = -1
+            for tok in range(games_tensor.size(1) - 1, -1, -1):
+                if sp_msk[game_idx, tok]:
+                    mpl = tok
+                    break
+
+            if mpl == -1:
+                continue
+
+            min_prompt_len = max(min(min_prompt_len, mpl), 1)
 
         for token in range(min_prompt_len, max_token):
             next_tokens = self.generate_token(games_tensor[:, :token], temperature = temperature, top_k = top_k).view(-1)
