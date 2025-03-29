@@ -43,7 +43,7 @@ class GameState(object):
             for move in re.split("(?:(?:[0-9]+\.)|(?:[; ]))", opening):
                 if len(move) == 0:
                     continue
-
+                
                 self.register_move(move, parse_move = "san")
 
                 if self.is_complete():
@@ -103,11 +103,11 @@ class GameState(object):
 
         assert type(input_move) == str, (input_move, type(input_move))
 
-        if self.game_id == 0:
-            print(f"Register Move: \'{input_move}\'")
+        # if self.game_id == 0:
+        #     print(f"Register Move: \'{input_move}\'")
 
         try:
-            if parse_move == "san":
+            if parse_move == "san" or parse_move == "pgn":
                 move = self.board.parse_san(input_move)
             elif parse_move == "uci":
                 move = self.board.parse_uci(input_move)
@@ -144,8 +144,9 @@ class GameState(object):
 
             self.termination = f"Ambiguous Move: \'{move_str}\' given context: \'{self.state}\'; Player: \'{self.players[self.turn]}\'"
             move_failed = True
+
         except Exception as err:
-            print("Error:", err, "from parsing move", move_str)
+            print(f"Error at {self.game_id}:", err, "from parsing move", move_str)
             move_failed = True
 
         if not move_failed and not bool(move):
@@ -160,8 +161,8 @@ class GameState(object):
             move_str += " "
 
         self.state += move_str
-        if self.game_id == 0:
-            print(f"State: \'{self.state}\'")
+        # if self.game_id == 0:
+        #     print(f"State: \'{self.state}\'")
         self.G.append(move_str)
         player_type = (-1 ** (1 * (self.turn != self.w_player_id))) if "GPT" in self.players[self.turn] else 0
         self.P.append(player_type)
