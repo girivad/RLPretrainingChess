@@ -83,12 +83,12 @@ class GPTPlayer(object):
         moves = [move.split()[0] for move in str_moves]
         
         for game_state, move in zip(game_states, moves):
-            if ";" in move:
+            if move[0] == ";":
                 # if self.device == "cuda:0":
                 #     print("Game resigned.")
                 game_state.resign()
             else:
-                game_state.register_move(move, parse_move = self.input_type)
+                game_state.register_move(move.split(";")[0], parse_move = self.input_type)
         
         # if self.device == "cuda:0":
             # print("Play Moves done.")

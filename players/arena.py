@@ -115,6 +115,7 @@ class Arena(object):
     
                     if self.local_rank == 0:
                         print(f"Completion: {game_state.game_id}: \'{game_state.state}\'\ndue to \'{game_state.termination}\'")
+                        print(f"Outcome: {game_state.game_id}: \'{game_state.outcome}\' with players \'{game_state.players[game_state.w_player_id]} vs {game_state.players[1 - game_state.w_player_id]}\'")
 
                     games_played += 1
                     if self.local_rank == 0:

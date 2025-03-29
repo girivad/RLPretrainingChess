@@ -227,7 +227,21 @@ running_mfu = -1.0
 
 pi_ref.eval()
 
+# Evaluation Check:
+# with torch.no_grad():
+#     elo, lw_bd, up_bd = estimate_elo(
+#         pi_theta, batch_size, eval_iters if iter_num % hifi_eval_interval != 0 else hifi_eval_iters, ddp_local_rank, f"./pgn/{iter_num}", 
+#         wait, tok_type = tok_type, tokenizer_path = tokenizer_path, world_size = ddp_world_size, use_opening_book = use_opening_book,
+#         invalid_retries = invalid_retries, game_format = game_format, include_idx = include_idx
+#     )
+#     print("Elo:", lw_bd, "<", elo, "<", up_bd)
+
+# if ddp:
+#     destroy_process_group()
+#     exit(0)
+
 # Interactive Evaluation Check:
+# one_move = True
 # tok, detok, _ = load_tokenizer(tok_type, tokenizer_path)
 # player = GPTPlayer(pi_theta, device, tok_type = tok_type, tokenizer_path = tokenizer_path, game_format = "pgn")
 # pgn_file = open("./pgn/test.pgn", "w")
@@ -237,6 +251,17 @@ pi_ref.eval()
 #     # game_transcript = re.sub("[0-9]+\. ", "", game_transcript)
 
 #     game_state = GameState(0, None, opening = game_transcript, invalid_retries = 5, format = "pgn", include_idx = True, w_player_id = 1)
+
+#     if one_move:
+#         print("Initial Game:", game_state.state)
+#         init_turn = game_state.turn
+#         for _ in range(5):
+#             player.play_moves([game_state])
+#             if game_state.turn != init_turn:
+#                 break
+
+#         print("Full State of the Game:", game_state.state)
+#         continue
 
 #     print("Opening:", game_state.turn)
 
@@ -269,7 +294,7 @@ pi_ref.eval()
 
 #     print("Enter Opening:")
 
-# pgn_file.close()
+# # pgn_file.close()
 
 # if ddp:
 #     destroy_process_group()
@@ -302,7 +327,7 @@ try:
 
                 R = torch.where(std_r != 0, (R - mean_r) / std_r, R)
                 assert not torch.any(R.isnan()), R            
-                
+        
         # determine and set the learning rate for this iteration
         lr = learning_rate
         for param_group in optimizer.param_groups:
