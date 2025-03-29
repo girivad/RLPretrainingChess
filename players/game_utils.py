@@ -47,7 +47,7 @@ class GameState(object):
                 self.register_move(move, parse_move = "san")
 
                 if self.is_complete():
-                    raise Exception(f"Opening {opening} was invalid, completed the game at move {self.move_idx}: {move}.")
+                    raise Exception(f"Opening \'{opening}\' was invalid, completed the game at move {self.move_idx}: \'{move}\'.")
                 
     @staticmethod
     def init_terminal_game(outcome, w_player_id, p_names = ["Stockfish", "GPT"], ratings = None):
@@ -219,7 +219,7 @@ def get_openings():
     openings = []
 
     # Eco Opening Book based on "Grandmaster-level Chess without Search" (https://github.com/google-deepmind/searchless_chess/blob/main/src/tournament.py#L195)
-    with open("./openings/eco_openings.pgn", "r") as openings_file:
+    with open("./openings/eco_openings_filtered.pgn", "r") as openings_file:
         for line in openings_file.readlines():
             if len(line.strip()) == 0 or "[" in line or "]" in line:
                 continue
