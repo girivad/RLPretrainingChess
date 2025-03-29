@@ -113,6 +113,9 @@ class Arena(object):
                         G, P, R = update_gpr(g, G, p, P, r, R, self.tokenize)
                         game_order[game_state.game_id] = games_played
     
+                    if self.local_rank == 0:
+                        print(f"Completion: {game_state.game_id}: \'{game_state.state}\'\ndue to \'{game_state.termination}\'")
+
                     games_played += 1
                     if self.local_rank == 0:
                         prog_bar.update(1)

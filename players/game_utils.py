@@ -112,6 +112,7 @@ class GameState(object):
             elif parse_move == "uci":
                 move = self.board.parse_uci(input_move)
         except IllegalMoveError:
+            self.termination = f"Illegal Move: \'{move_str}\' given context: \'{self.state}\'; Player: \'{self.players[self.turn]}\'"
             if self.retries > 0:
                 if self.game_id == 0:
                     print(self.termination)
@@ -120,9 +121,9 @@ class GameState(object):
                 self.retries -= 1
                 return
 
-            self.termination = f"Illegal Move: \'{move_str}\' given context: \'{self.state}\'; Player: \'{self.players[self.turn]}\'"
             move_failed = True
         except InvalidMoveError:
+            self.termination = f"Invalid Move: \'{move_str}\' given context: \'{self.state}\'; Player: \'{self.players[self.turn]}\'"
             if self.retries > 0:
                 if self.game_id == 0:
                     print(self.termination)
@@ -131,9 +132,9 @@ class GameState(object):
                 self.retries -= 1
                 return
 
-            self.termination = f"Invalid Move: \'{move_str}\' given context: \'{self.state}\'; Player: \'{self.players[self.turn]}\'"
             move_failed = True
         except AmbiguousMoveError:
+            self.termination = f"Ambiguous Move: \'{move_str}\' given context: \'{self.state}\'; Player: \'{self.players[self.turn]}\'"
             if self.retries > 0:
                 if self.game_id == 0:
                     print(self.termination)
@@ -142,7 +143,6 @@ class GameState(object):
                 self.retries -= 1
                 return
 
-            self.termination = f"Ambiguous Move: \'{move_str}\' given context: \'{self.state}\'; Player: \'{self.players[self.turn]}\'"
             move_failed = True
 
         except Exception as err:
@@ -228,5 +228,5 @@ def get_openings():
             line = line.strip().removesuffix("1/2-1/2").removesuffix("1-0").removesuffix("0-1").strip()
             openings.append(line)
 
-    # print(f"Retrieved {len(openings)} openings.")
+    print(f"Retrieved {len(openings)} openings.")
     return openings
