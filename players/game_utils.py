@@ -48,7 +48,7 @@ class GameState(object):
 
                 if self.is_complete():
                     raise Exception(f"Opening \'{opening}\' was invalid, completed the game at move {self.move_idx}: \'{move}\'.")
-                
+        
     @staticmethod
     def init_terminal_game(outcome, w_player_id, p_names = ["Stockfish", "GPT"], ratings = None):
         game_state = GameState(-1, None, p_names, ratings)
@@ -103,8 +103,8 @@ class GameState(object):
 
         assert type(input_move) == str, (input_move, type(input_move))
 
-        # if self.game_id == 0:
-        #     print(f"Register Move: \'{input_move}\'")
+        if self.game_id == 0:
+            print(f"Register Move: \'{input_move}\'")
 
         try:
             if parse_move == "san" or parse_move == "pgn":
@@ -161,8 +161,8 @@ class GameState(object):
             move_str += " "
 
         self.state += move_str
-        # if self.game_id == 0:
-        #     print(f"State: \'{self.state}\'")
+        if self.game_id == 0:
+            print(f"State: \'{self.state}\'")
         self.G.append(move_str)
         player_type = (-1 ** (1 * (self.turn != self.w_player_id))) if "GPT" in self.players[self.turn] else 0
         self.P.append(player_type)
