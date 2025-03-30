@@ -224,5 +224,5 @@ def get_openings():
             line = line.strip().removesuffix("1/2-1/2").removesuffix("1-0").removesuffix("0-1").strip()
             openings.append(line)
 
-    print(f"Retrieved {len(openings)} openings.")
+    # print(f"Retrieved {len(openings)} openings.")
     return openings

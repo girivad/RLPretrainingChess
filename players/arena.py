@@ -68,7 +68,7 @@ class Arena(object):
             prog_bar = tqdm(total = total_games)
 
         if len(openings) > 0:
-            print("Total Games:", total_games)
+            # print("Total Games:", total_games)
             # print("Openings:", len(openings))
             game_openings = random.choices(openings, k = total_games // group_size)
             # print("Selected Openings:", len(game_openings))
@@ -113,9 +113,9 @@ class Arena(object):
                         G, P, R = update_gpr(g, G, p, P, r, R, self.tokenize)
                         game_order[game_state.game_id] = games_played
     
-                    if self.local_rank == 0:
-                        # print(f"Completion: {game_state.game_id}: \'{game_state.state}\'\ndue to \'{game_state.termination}\'")
-                        print(f"Outcome: {game_state.game_id}: \'{game_state.outcome}\' with players \'{game_state.players[game_state.w_player_id]} vs {game_state.players[1 - game_state.w_player_id]}\'")
+                    # if self.local_rank == 0:
+                    #     # print(f"Completion: {game_state.game_id}: \'{game_state.state}\'\ndue to \'{game_state.termination}\'")
+                    #     print(f"Outcome: {game_state.game_id}: \'{game_state.outcome}\' with players \'{game_state.players[game_state.w_player_id]} vs {game_state.players[1 - game_state.w_player_id]}\'")
 
                     games_played += 1
                     if self.local_rank == 0:

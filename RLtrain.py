@@ -19,6 +19,7 @@ $ torchrun --nproc_per_node=8 --nnodes=2 --node_rank=1 --master_addr=123.456.123
 import os
 import time
 from contextlib import nullcontext
+from tqdm import tqdm
 
 import torch
 from torch.nn.parallel import DistributedDataParallel as DDP
@@ -301,6 +302,8 @@ if eval_only:
 #     destroy_process_group()
 # exit(0)
 
+RL_prg_bar = tqdm(total = max_iters)
+
 try:
     while True:
         # G: Indices of moves played in simulated games; B x S
@@ -448,14 +451,17 @@ try:
                 }))
         iter_num += 1
         local_iter_num += 1
+        RL_prg_bar.update(1)
 
         # termination conditions
         if iter_num > max_iters:
             break
-
+    
 except Exception as err:
     print("RL Train Error:", err)
     print("Traceback:", traceback.format_exc())
+
+RL_prg_bar.close()
 
 if ddp:
     destroy_process_group()
