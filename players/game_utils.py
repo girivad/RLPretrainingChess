@@ -101,8 +101,8 @@ class GameState(object):
 
         assert type(input_move) == str, (input_move, type(input_move))
 
-        if self.game_id == 0:
-            print(f"Register Move: \'{input_move}\'")
+        # if self.game_id == 0:
+        #     print(f"Register Move: \'{input_move}\'")
 
         try:
             if parse_move == "san" or parse_move == "pgn":
@@ -155,8 +155,8 @@ class GameState(object):
             move_str = move.uci() if self.format == "uci" else self.board.san(move)
 
         self.state += move_str + " "
-        if self.game_id == 0:
-            print(f"State: \'{self.state}\'")
+        # if self.game_id == 0:
+        #     print(f"State: \'{self.state}\'")
         self.G.append(move_str)
         self.G.append(" ")
         player_type = (-1 ** (1 * (self.turn != self.w_player_id))) if "GPT" in self.players[self.turn] else 0

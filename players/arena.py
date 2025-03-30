@@ -79,9 +79,9 @@ class Arena(object):
             game_perspectives = sum([[perspective] * group_size for perspective in game_perspectives], [])
             # print("Spread Perspectives:", len(game_perspectives))
 
-            game_states = [GameState(idx, self.adjudicator, self.p_names, [random.choice(range(1350, 1550, 100)) if "Stockfish" in p_name else None for p_name in self.p_names], opening = game_openings[idx], w_player_id = game_perspectives[idx], invalid_retries = self.invalid_retries, format = self.game_format, include_idx = self.include_idx) for idx in range(self.eval_bsz)]
+            game_states = [GameState(idx, self.adjudicator, self.p_names, [random.choice(range(1350, 2850, 100)) if "Stockfish" in p_name else None for p_name in self.p_names], opening = game_openings[idx], w_player_id = game_perspectives[idx], invalid_retries = self.invalid_retries, format = self.game_format, include_idx = self.include_idx) for idx in range(self.eval_bsz)]
         else:
-            game_states = [GameState(idx, self.adjudicator, self.p_names, [random.choice(range(1350, 1550, 100)) if "Stockfish" in p_name else None for p_name in self.p_names], opening = "", w_player_id = random.randint(0, 1), invalid_retries = self.invalid_retries, format = self.game_format, include_idx = self.include_idx) for idx in range(self.eval_bsz)]
+            game_states = [GameState(idx, self.adjudicator, self.p_names, [random.choice(range(1350, 2850, 100)) if "Stockfish" in p_name else None for p_name in self.p_names], opening = "", w_player_id = random.randint(0, 1), invalid_retries = self.invalid_retries, format = self.game_format, include_idx = self.include_idx) for idx in range(self.eval_bsz)]
 
         base_game_id = self.eval_bsz
 
@@ -114,7 +114,7 @@ class Arena(object):
                         game_order[game_state.game_id] = games_played
     
                     if self.local_rank == 0:
-                        print(f"Completion: {game_state.game_id}: \'{game_state.state}\'\ndue to \'{game_state.termination}\'")
+                        # print(f"Completion: {game_state.game_id}: \'{game_state.state}\'\ndue to \'{game_state.termination}\'")
                         print(f"Outcome: {game_state.game_id}: \'{game_state.outcome}\' with players \'{game_state.players[game_state.w_player_id]} vs {game_state.players[1 - game_state.w_player_id]}\'")
 
                     games_played += 1
@@ -124,9 +124,9 @@ class Arena(object):
                 game_states = reduced_game_states
                 new_games = min(self.eval_bsz - len(game_states), total_games - (games_played + len(game_states))) # Min(Bsz - reduced_games, total_games - (games_played + reduced_games))
                 if len(openings) > 0:
-                    game_states += [GameState(base_game_id + game_id, self.adjudicator, self.p_names, [random.choice(range(1350, 1550, 100)) if "Stockfish" in p_name else None for p_name in self.p_names], opening = game_openings[base_game_id + game_id], w_player_id = game_perspectives[base_game_id + game_id], invalid_retries = self.invalid_retries, format = self.game_format, include_idx = self.include_idx) for game_id in range(new_games)]
+                    game_states += [GameState(base_game_id + game_id, self.adjudicator, self.p_names, [random.choice(range(1350, 2850, 100)) if "Stockfish" in p_name else None for p_name in self.p_names], opening = game_openings[base_game_id + game_id], w_player_id = game_perspectives[base_game_id + game_id], invalid_retries = self.invalid_retries, format = self.game_format, include_idx = self.include_idx) for game_id in range(new_games)]
                 else:
-                    game_states += [GameState(base_game_id + game_id, self.adjudicator, self.p_names, [random.choice(range(1350, 1550, 100)) if "Stockfish" in p_name else None for p_name in self.p_names], w_player_id = random.randint(0, 1), invalid_retries = self.invalid_retries, format = self.game_format, include_idx = self.include_idx) for game_id in range(new_games)]
+                    game_states += [GameState(base_game_id + game_id, self.adjudicator, self.p_names, [random.choice(range(1350, 2850, 100)) if "Stockfish" in p_name else None for p_name in self.p_names], w_player_id = random.randint(0, 1), invalid_retries = self.invalid_retries, format = self.game_format, include_idx = self.include_idx) for game_id in range(new_games)]
 
                 base_game_id += new_games
 
@@ -198,7 +198,7 @@ def sample_sf_games_fast(ratings, games_per_pair = 20):
 def sample_games(pi_theta, total_games, bsz, rank, tok_type = "move", tokenizer_path = "./tokenizer/tokenizers/move_token.pkl", self_play = False, write_out = None, sf_rating_games = "fast", sf_time = 0.1, use_opening_book = False, group_size = 1, invalid_retries = 0, game_format = "uci", include_idx = False):
     synthetic_games = []
     if sf_rating_games == "fast":
-        sf_ratings = range(1350, 1550, 100)
+        sf_ratings = range(1350, 2850, 100)
         synthetic_games = sample_sf_games_fast(sf_ratings, games_per_pair = total_games // len(sf_ratings))
 
     p0 = GPTPlayer(pi_theta, f"cuda:{rank}", max_move_size = MMS[tok_type], tok_type = tok_type, tokenizer_path = tokenizer_path, game_format = game_format)
