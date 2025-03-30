@@ -337,7 +337,7 @@ try:
         if iter_num % eval_interval == 0:      
             with torch.no_grad():
                 elo, lw_bd, up_bd = estimate_elo(
-                    pi_theta, batch_size, eval_iters if iter_num % hifi_eval_interval != 0 else hifi_eval_iters, ddp_local_rank, f"./pgn/{iter_num}", 
+                    pi_theta, batch_size, eval_iters if iter_num % hifi_eval_interval != 0 else hifi_eval_iters, ddp_local_rank, f"./pgn/{iter_num}_", 
                     wait, tok_type = tok_type, tokenizer_path = tokenizer_path, world_size = ddp_world_size, use_opening_book = use_opening_book,
                     invalid_retries = invalid_retries, game_format = game_format, include_idx = include_idx
                 )
