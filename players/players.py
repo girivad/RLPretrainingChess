@@ -19,7 +19,9 @@ class StockfishPlayer(object):
     def play_move(
         self, game_state: GameState
     ):
+        # print("Configuring SF to play at rating:", game_state.ratings[game_state.turn])
         self._engine.configure({"UCI_Elo": game_state.ratings[game_state.turn]})
+        # self._engine.configure({"Skill Level": 0})
         result = self._engine.play(game_state.board, chess.engine.Limit(time=self._play_time))
 
         if result.resigned:
@@ -73,6 +75,10 @@ class GPTPlayer(object):
             else:
                 red_game_states.append(game_state)
                 red_games.append(game)
+        
+        if len(red_game_states) == 0:
+            return
+        
         game_states = red_game_states
         games = red_games            
 
@@ -84,15 +90,10 @@ class GPTPlayer(object):
         
         for game_state, move in zip(game_states, moves):
             if move[0] == ";":
-                # if self.device == "cuda:0":
-                #     print("Game resigned.")
                 game_state.resign()
             else:
                 game_state.register_move(move.split(";")[0], parse_move = self.input_type)
         
-        # if self.device == "cuda:0":
-            # print("Play Moves done.")
-
     def play(
         self, games_states: List[GameState]
     ):
