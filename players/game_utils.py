@@ -9,8 +9,6 @@ class GameState(object):
         self.game_id = game_id
         
         self.board = chess.Board()
-        if format == "pgn":
-            self.node = chess.pgn.Game()
         self.state = ";1." if format == "pgn" and include_idx else ";"
         self.G = [self.state]
         self.P = [0]
@@ -153,19 +151,17 @@ class GameState(object):
             self.termination = f"Parsed Null Move."
             move_failed = True
 
-        if not move_failed and self.format == "pgn":
-            self.node = self.node.add_variation(move)
-
         if not move_failed:
-            move_str = move.uci() if self.format == "uci" else str(self.node).split(" ")[-1]
-            move_str += " "
+            move_str = move.uci() if self.format == "uci" else self.board.san(move)
 
-        self.state += move_str
+        self.state += move_str + " "
         if self.game_id == 0:
             print(f"State: \'{self.state}\'")
         self.G.append(move_str)
+        self.G.append(" ")
         player_type = (-1 ** (1 * (self.turn != self.w_player_id))) if "GPT" in self.players[self.turn] else 0
         self.P.append(player_type)
+        self.P.append(0)
         assert len(self.G) == len(self.P)
 
         self.retries = self.retry_limit
