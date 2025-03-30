@@ -20,7 +20,7 @@ class StockfishPlayer(object):
         self, game_state: GameState
     ):
         # print("Configuring SF to play at rating:", game_state.ratings[game_state.turn])
-        self._engine.configure({"UCI_Elo": game_state.ratings[game_state.turn]})
+        self._engine.configure({"UCI_Elo": game_state.ratings[game_state.turn], "UCI_LimitStrength": True})
         # self._engine.configure({"Skill Level": 0})
         result = self._engine.play(game_state.board, chess.engine.Limit(time=self._play_time))
 
@@ -70,7 +70,7 @@ class GPTPlayer(object):
         # Decide games beyond context length
         red_game_states, red_games = [], []
         for game_state, game in zip(game_states, games):
-            if game.size(0) > self.model.module.config.block_size:
+            if game.size(0) >= self.model.module.config.block_size:
                 game_state.decide()
             else:
                 red_game_states.append(game_state)
