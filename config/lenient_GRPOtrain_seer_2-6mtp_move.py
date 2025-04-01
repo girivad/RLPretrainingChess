@@ -7,7 +7,7 @@ init_from = "pretrain"
 model_dir = "../../model_vol/"
 
 out_dir = os.path.join(model_dir, pretrain_run_name, f"ckpt_{ckpt_num}")
-eval_interval = 500
+eval_interval = 100
 eval_iters = 100
 hifi_eval_interval = 2500
 hifi_eval_iters = 300 # 1500
