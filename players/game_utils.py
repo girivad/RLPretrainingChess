@@ -6,7 +6,7 @@ STREAM_SIZE = 1024 ** 3
 
 class GameState(object):
     def __init__(self, game_id, sf_engine, players = ["Stockfish", "GPT"], ratings = None, opening = "", w_player_id = 0, invalid_retries = 0, format = "uci", include_idx = False):
-        self.game_id = game_id
+        self.game_id: int = game_id
         
         self.board = chess.Board()
         self.state = ";1." if format == "pgn" and include_idx else ";"
