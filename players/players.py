@@ -22,10 +22,10 @@ class StockfishPlayer(object):
         _, engine = await chess.engine.popen_uci(self.stockfish_path)
         while True:
             try:
-                board, rating = await b_queue.get()
+                id, board, rating = await b_queue.get()
                 await engine.configure({"UCI_Elo": rating, "UCI_LimitStrength": True})
                 result = await engine.play(board, chess.engine.Limit(time = self._play_time))
-                m_queue.put_nowait(result)
+                m_queue.put_nowait((id, result))
                 b_queue.task_done()
             except asyncio.CancelledError:
                 await engine.quit()
@@ -34,7 +34,7 @@ class StockfishPlayer(object):
                 m_queue.put_nowait(err)
                 b_queue.task_done()
 
-    async def get_moves(self, game_ins: List[tuple[chess.Board, int]]) -> List[chess.engine.PlayResult]:
+    async def get_moves(self, game_ins: List[tuple[int, chess.Board, int]]) -> List[chess.engine.PlayResult]:
         b_queue = asyncio.Queue()
         m_queue = asyncio.Queue()
         for game_in in game_ins:
@@ -48,10 +48,12 @@ class StockfishPlayer(object):
 
         await asyncio.gather(*tasks, return_exceptions = True)
 
-        moves = []
+        id_to_idx = {id: idx for idx, id in enumerate(zip(*game_ins)[0])}
+        moves = [None] * len(game_ins)
 
         while m_queue.qsize() > 0:
-            moves.append(m_queue.get_nowait())
+            id, res = m_queue.get_nowait()
+            moves[id_to_idx[id]] = res
 
         return moves
 
@@ -59,7 +61,7 @@ class StockfishPlayer(object):
         self, games_states: List[GameState]
     ):
 
-        game_ins = [(game_state.board, game_state.ratings[game_state.turn]) for game_state in games_states]
+        game_ins = [(game_state.game_id, game_state.board, game_state.ratings[game_state.turn]) for game_state in games_states]
         moves = self._event_loop.run_until_complete(self.get_moves(game_ins))
 
         for game_state, move in zip(games_states, moves):
