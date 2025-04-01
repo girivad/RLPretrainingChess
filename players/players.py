@@ -4,46 +4,79 @@ from model import GPT
 from typing import List
 from tokenizer.scripts.tokenizer import load_tokenizer
 from players.game_utils import GameState
+import asyncio
 
 # Adapted from https://github.com/adamkarvonen/chess_gpt_eval/blob/master/main.py
 
 class StockfishPlayer(object):
-    def __init__(self, play_time: float):
+    def __init__(self, play_time: float, workers: int = 8):
         self._play_time = play_time
-        stockfish_path = "./stockfish_exec"
-        self._engine = chess.engine.SimpleEngine.popen_uci(stockfish_path, timeout = None)
+        self.stockfish_path = "./stockfish_exec"
+        self._event_loop = asyncio.new_event_loop()
+        self.workers = workers
 
     def name(self):
         return "Stockfish"
 
-    def play_move(
-        self, game_state: GameState
-    ):
-        # print("Configuring SF to play at rating:", game_state.ratings[game_state.turn])
-        self._engine.configure({"UCI_Elo": game_state.ratings[game_state.turn], "UCI_LimitStrength": True})
-        # self._engine.configure({"Skill Level": 0})
-        result = self._engine.play(game_state.board, chess.engine.Limit(time=self._play_time))
+    async def get_move(self, b_queue: asyncio.Queue, m_queue: asyncio.Queue):
+        _, engine = await chess.engine.popen_uci(self.stockfish_path)
+        while True:
+            try:
+                board, rating = await b_queue.get()
+                await engine.configure({"UCI_Elo": rating, "UCI_LimitStrength": True})
+                result = await engine.play(board, chess.engine.Limit(time = 0.1))
+                m_queue.put_nowait(result)
+                b_queue.task_done()
+            except asyncio.CancelledError:
+                await engine.quit()
+                break
+            except Exception as err:
+                m_queue.put_nowait(err)
+                b_queue.task_done()
 
-        if result.resigned:
-            game_state.resign()
-        elif result.draw_offered:
-            game_state.draw()
-        elif result.move is not None:       
-            game_state.register_move(result.move.uci())
-        else:
-            raise Exception("Stockfish played invalid move in state:\n" + game_state.state)
+    async def get_moves(self, game_ins: List[(chess.Board, int)]) -> List[chess.engine.PlayResult]:
+        b_queue = asyncio.Queue()
+        m_queue = asyncio.Queue()
+        for game_in in game_ins:
+            b_queue.put_nowait(game_in)
+        
+        tasks = [asyncio.create_task(self.get_move(b_queue, m_queue)) for _ in range(self.workers)]
+        await b_queue.join()
+
+        for task in tasks:
+            task.cancel()
+
+        await asyncio.gather(*tasks, return_exceptions = True)
+
+        moves = []
+
+        while m_queue.qsize() > 0:
+            moves.append(m_queue.get_nowait())
+
+        return moves
 
     def play(
         self, games_states: List[GameState]
     ):
-        for game_state in games_states:
-            self.play_move(game_state)
+
+        game_ins = [(game_state.board, game_state.ratings[game_state.turn]) for game_state in games_states]
+        moves = self._event_loop.run_until_complete(self.get_moves(game_ins))
+
+        for game_state, move in zip(games_states, moves):
+            if move.resigned:
+                game_state.resign()
+            elif move.draw_offered:
+                game_state.draw()
+            elif move.move is not None:
+                game_state.register_move(move.move.uci())
+            else:
+                raise Exception("Stockfish played invalid move in state:\n" + game_state.state)
 
     def get_config(self) -> dict:
         return {"play_time": self._play_time}
 
     def close(self):
-        self._engine.quit()
+        self._event_loop.close()
 
 class GPTPlayer(object):
     def __init__(self, model: GPT, device, max_move_size = 5, tok_type = "move", tokenizer_path = "./tokenizer/tokenizers/move_token.pkl", topk = None, temp = 1, game_format = "uci"):
