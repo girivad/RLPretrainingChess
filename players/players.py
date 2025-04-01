@@ -48,7 +48,7 @@ class StockfishPlayer(object):
 
         await asyncio.gather(*tasks, return_exceptions = True)
 
-        id_to_idx = {id: idx for idx, id in enumerate(zip(*game_ins)[0])}
+        id_to_idx = {id: idx for idx, id in enumerate(list(zip(*game_ins))[0])}
         moves = [None] * len(game_ins)
 
         while m_queue.qsize() > 0:

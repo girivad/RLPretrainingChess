@@ -5,9 +5,9 @@ async def get_move(b_queue: asyncio.Queue, m_queue: asyncio.Queue):
     _, engine = await chess.engine.popen_uci("./stockfish_exec")
     while True:
         try:
-            board = await b_queue.get()
+            idx, board = await b_queue.get()
             result = await engine.play(board, chess.engine.Limit(time = 0.1))
-            m_queue.put_nowait(result)
+            m_queue.put_nowait((idx, result))
             b_queue.task_done()
         except asyncio.CancelledError:
             await engine.quit()
@@ -19,8 +19,8 @@ async def get_move(b_queue: asyncio.Queue, m_queue: asyncio.Queue):
 async def runner(boards, workers):
     b_queue = asyncio.Queue()
     m_queue = asyncio.Queue()
-    for _ in range(boards):
-        b_queue.put_nowait(chess.Board())
+    for idx in range(boards):
+        b_queue.put_nowait((idx, chess.Board()))
     
     tasks = [asyncio.create_task(get_move(b_queue, m_queue)) for _ in range(workers)]
     await b_queue.join()
