@@ -64,8 +64,8 @@ class Arena(object):
         games_played = 0
         game_order = [None] * total_games
 
-        # if self.local_rank == 0:
-        #     prog_bar = tqdm(total = total_games)
+        if self.local_rank == 0:
+            prog_bar = tqdm(total = total_games)
 
         if len(openings) > 0:
             # print("Total Games:", total_games)
@@ -118,8 +118,8 @@ class Arena(object):
                     #     print(f"Outcome: {game_state.game_id}: \'{game_state.outcome}\' with players \'{game_state.players[game_state.w_player_id]} vs {game_state.players[1 - game_state.w_player_id]}\'")
 
                     games_played += 1
-                    # if self.local_rank == 0:
-                    #     prog_bar.update(1)
+                    if self.local_rank == 0:
+                        prog_bar.update(1)
 
                 game_states = reduced_game_states
                 new_games = min(self.eval_bsz - len(game_states), total_games - (games_played + len(game_states))) # Min(Bsz - reduced_games, total_games - (games_played + reduced_games))
@@ -130,8 +130,8 @@ class Arena(object):
 
                 base_game_id += new_games
 
-        # if self.local_rank == 0:
-        #     prog_bar.close()
+        if self.local_rank == 0:
+            prog_bar.close()
 
         if write_out:
             write_out.close()
