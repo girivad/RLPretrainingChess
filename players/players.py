@@ -9,7 +9,7 @@ import asyncio
 # Adapted from https://github.com/adamkarvonen/chess_gpt_eval/blob/master/main.py
 
 class StockfishPlayer(object):
-    def __init__(self, play_time: float, workers: int = 8):
+    def __init__(self, play_time: float, workers: int = 14):
         self._play_time = play_time
         self.stockfish_path = "./stockfish_exec"
         self._event_loop = asyncio.new_event_loop()
