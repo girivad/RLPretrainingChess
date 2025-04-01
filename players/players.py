@@ -34,7 +34,7 @@ class StockfishPlayer(object):
                 m_queue.put_nowait(err)
                 b_queue.task_done()
 
-    async def get_moves(self, game_ins: List[(chess.Board, int)]) -> List[chess.engine.PlayResult]:
+    async def get_moves(self, game_ins: List[tuple[chess.Board, int]]) -> List[chess.engine.PlayResult]:
         b_queue = asyncio.Queue()
         m_queue = asyncio.Queue()
         for game_in in game_ins:
