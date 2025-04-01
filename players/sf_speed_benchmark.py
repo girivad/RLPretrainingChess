@@ -44,3 +44,5 @@ for workers in range(2, 50, 2):
         s = time()
         moves = loop.run_until_complete(runner(boards, workers))
         print(boards, "/", workers, "->", time() - s, "s")
+
+loop.close()
