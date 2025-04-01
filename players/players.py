@@ -24,7 +24,7 @@ class StockfishPlayer(object):
             try:
                 board, rating = await b_queue.get()
                 await engine.configure({"UCI_Elo": rating, "UCI_LimitStrength": True})
-                result = await engine.play(board, chess.engine.Limit(time = 0.1))
+                result = await engine.play(board, chess.engine.Limit(time = self._play_time))
                 m_queue.put_nowait(result)
                 b_queue.task_done()
             except asyncio.CancelledError:
