@@ -195,7 +195,7 @@ def sample_sf_games_fast(ratings, games_per_pair = 20):
 
     return [GameState.init_terminal_game(outcome, 0, ["Stockfish", "Stockfish"], [w_elo, b_elo]) for w_elo, b_elo, outcome in zip(elos[:, 0], elos[:, 1], outcomes)]
 
-def sample_games(pi_theta, total_games, bsz, rank, tok_type = "move", tokenizer_path = "./tokenizer/tokenizers/move_token.pkl", self_play = False, write_out = None, sf_rating_games = "fast", sf_time = 0.1, use_opening_book = False, group_size = 1, invalid_retries = 0, game_format = "uci", include_idx = False):
+def sample_games(pi_theta, total_games, bsz, rank, tok_type = "move", tokenizer_path = "./tokenizer/tokenizers/move_token.pkl", self_play = False, write_out = None, sf_rating_games = "fast", sf_time = 0.1, use_opening_book = False, group_size = 1, invalid_retries = 0, game_format = "uci", include_idx = False, sf_workers = 14):
     synthetic_games = []
     if sf_rating_games == "fast":
         sf_ratings = range(1350, 2850, 100)
@@ -206,7 +206,7 @@ def sample_games(pi_theta, total_games, bsz, rank, tok_type = "move", tokenizer_
     if self_play:
         p1 = GPTPlayer(pi_theta, f"cuda:{rank}", max_move_size = MMS[tok_type], tok_type = tok_type, tokenizer_path = tokenizer_path, game_format = game_format)
     else:
-        p1 = StockfishPlayer(sf_time)
+        p1 = StockfishPlayer(sf_time, sf_workers)
 
     tokenize = None
     if write_out is None:
@@ -262,8 +262,8 @@ def calc_elo(pgn_file):
     
     return elo, lw_bd, up_bd
 
-def estimate_elo(pi_theta, eval_bsz, eval_games, rank, write_out, wait, tok_type = "move", tokenizer_path = "./tokenizer/tokenizers/move_token.pkl", world_size = None, use_opening_book = True, invalid_retries = 0, game_format = "uci", include_idx = False):
-    sample_games(pi_theta, eval_games, eval_bsz, rank, tok_type, tokenizer_path, write_out = write_out, use_opening_book = use_opening_book, invalid_retries = invalid_retries, game_format = game_format, include_idx = include_idx)
+def estimate_elo(pi_theta, eval_bsz, eval_games, rank, write_out, wait, tok_type = "move", tokenizer_path = "./tokenizer/tokenizers/move_token.pkl", world_size = None, use_opening_book = True, invalid_retries = 0, game_format = "uci", include_idx = False, sf_workers = 14):
+    sample_games(pi_theta, eval_games, eval_bsz, rank, tok_type, tokenizer_path, write_out = write_out, use_opening_book = use_opening_book, invalid_retries = invalid_retries, game_format = game_format, include_idx = include_idx, sf_workers = sf_workers)
     wait()
     if rank == 0:
         assert world_size is not None
