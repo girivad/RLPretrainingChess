@@ -39,10 +39,10 @@ async def runner(boards, workers):
 
 loop = asyncio.new_event_loop()
 
-for workers in range(2, 50, 2):
-        boards = 101
+for boards in range(100, 1000, 100):
+    for workers in range(5, 100, 5):
         s = time()
         moves = loop.run_until_complete(runner(boards, workers))
-        print(boards, "/", workers, "->", time() - s, "s")
+        print(f"{boards}/{workers} -> {time() - s}s")
 
 loop.close()
