@@ -7,6 +7,7 @@ from tokenizer.scripts.tokenizer import load_tokenizer
 import numpy as np
 import subprocess
 from tqdm import tqdm
+from time import time
 
 STREAM_SIZE = 1024 ** 3
 
@@ -87,6 +88,9 @@ class Arena(object):
 
         move_num = 0
 
+        p0_time = 0
+        p1_time = 0
+
         while games_played < total_games:
             while len(game_states) > 0:
                 # if self.local_rank == 0 and len(game_states) > 0 and game_states[0].game_id == 0:    
@@ -97,9 +101,13 @@ class Arena(object):
                 p1_games = [game_state for game_state in game_states if game_state.turn == 1]
 
                 if len(p0_games) > 0:
+                    bf_time = time()
                     self.player0.play(p0_games)
+                    p0_time += time() - bf_time
                 if len(p1_games) > 0:
+                    bf_time = time()
                     self.player1.play(p1_games)
+                    p1_time += time() - bf_time
                 
                 reduced_game_states = []
                 for game_state in game_states:
@@ -132,6 +140,8 @@ class Arena(object):
 
         if self.local_rank == 0:
             prog_bar.close()
+
+        print(f"Run {total_games} games: {self.p_names[0]} - {p0_time}s, {self.p_names[1]} - {p1_time}s")
 
         if write_out:
             write_out.close()
