@@ -350,28 +350,29 @@ try:
             # G: Indices of moves played in simulated games; B x S
             # P: Player Name/Type, -1 for black GPT Player, +1 for white GPT Player, 0 for Stockfish Player/Padding Tokens; B x S
             # R: Game Rewards, reward is -1 for black victory, +1 for white victory, 0 for draw; B x 0.
-            with torch.no_grad():
-                G, P, R = sample_games(
-                    pi_theta, batch_size, batch_size, ddp_local_rank, tok_type = tok_type, 
-                    tokenizer_path = tokenizer_path, self_play = self_play, sf_time = 0.1,
-                    use_opening_book = use_opening_book,
-                    group_size = group_size if baseline == "GRPO" else 1,
-                    sf_rating_games = None, invalid_retries = invalid_retries,
-                    game_format = game_format, include_idx = include_idx, sf_workers = sf_workers
-                )
-                P = P[:, 1:] # B x (S - 1)
-                G = G.to(device)
-                P = P.to(device)
-                R = R.to(device)
+            with ctx:
+                with torch.no_grad():
+                    G, P, R = sample_games(
+                        pi_theta, batch_size, batch_size, ddp_local_rank, tok_type = tok_type, 
+                        tokenizer_path = tokenizer_path, self_play = self_play, sf_time = 0.1,
+                        use_opening_book = use_opening_book,
+                        group_size = group_size if baseline == "GRPO" else 1,
+                        sf_rating_games = None, invalid_retries = invalid_retries,
+                        game_format = game_format, include_idx = include_idx, sf_workers = sf_workers
+                    )
+                    P = P[:, 1:] # B x (S - 1)
+                    G = G.to(device)
+                    P = P.to(device)
+                    R = R.to(device)
 
-                if baseline == "GRPO":
-                    mean_r = torch.mean(R.view(-1, group_size), dim = 1)
-                    std_r = torch.std(R.view(-1, group_size), dim = 1)
-                    mean_r = mean_r.repeat_interleave(group_size)
-                    std_r = std_r.repeat_interleave(group_size)
+                    if baseline == "GRPO":
+                        mean_r = torch.mean(R.view(-1, group_size), dim = 1)
+                        std_r = torch.std(R.view(-1, group_size), dim = 1)
+                        mean_r = mean_r.repeat_interleave(group_size)
+                        std_r = std_r.repeat_interleave(group_size)
 
-                    R = torch.where(std_r != 0, (R - mean_r) / std_r, R)
-                    assert not torch.any(R.isnan()), R            
+                        R = torch.where(std_r != 0, (R - mean_r) / std_r, R)
+                        assert not torch.any(R.isnan()), R            
 
             if ddp:
                 # in DDP training we only need to sync gradients at the last micro step.
@@ -395,6 +396,9 @@ try:
 
                 assert torch.all(pi_t_prbs > 0)
                 assert torch.all((P != 0).sum(dim = 1) > 0)
+
+                print("R Stats:", R.mean())
+                print("P Stats:", P.mean())
 
                 loss = torch.mean(
                     torch.sum(
