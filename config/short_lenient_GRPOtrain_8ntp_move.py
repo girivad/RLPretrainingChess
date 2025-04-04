@@ -7,14 +7,14 @@ init_from = "pretrain"
 model_dir = "../../model_vol/"
 
 out_dir = os.path.join(model_dir, pretrain_run_name, f"ckpt_{ckpt_num}")
-eval_interval = 500
+eval_interval = 25
 eval_iters = 50
-hifi_eval_interval = 2500
+hifi_eval_interval = 25
 hifi_eval_iters = 150
-ckpt_interval = 500
+ckpt_interval = 25
 # I'm not sure what's going on, but when log_interval == 100, the time per iter is inaccurate and much longer than it should be
 # when running on multiple GPUs. TODO: investigate
-log_interval = 50  # don't print too too often
+log_interval = 10  # don't print too too often
 
 always_save_checkpoint = True
 
@@ -44,13 +44,13 @@ vocab_size = 1970
 aux_seer_loss = False
 
 learning_rate = 1e-6
-max_iters = 10000
+max_iters = 101
 min_lr = 1e-6  # no lr decay
 beta2 = 0.95  # make a bit bigger because number of tokens per iter is small
 clip_eps = 0.04
 
 baseline = "GRPO"
-group_size = 25
+group_size = 10
 clip_eps = 0.2
 self_play = False
 
