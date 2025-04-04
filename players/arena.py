@@ -197,7 +197,7 @@ def sample_sf_games_fast(ratings, games_per_pair = 20):
 
 def sample_games(pi_theta, total_games, bsz, rank, tok_type = "move", tokenizer_path = "./tokenizer/tokenizers/move_token.pkl", self_play = False, write_out = None, sf_rating_games = "fast", sf_time = 0.1, use_opening_book = False, group_size = 1, invalid_retries = 0, game_format = "uci", include_idx = False, sf_workers = 14):
     synthetic_games = []
-    if sf_rating_games == "fast":
+    if sf_rating_games == "fast" and not self_play:
         sf_ratings = range(1350, 2850, 100)
         synthetic_games = sample_sf_games_fast(sf_ratings, games_per_pair = total_games // len(sf_ratings))
 
