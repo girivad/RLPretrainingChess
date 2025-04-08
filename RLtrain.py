@@ -300,7 +300,7 @@ try:
             param_group['lr'] = lr
 
         # evaluate the elo on further games and write checkpoints
-        if iter_num % eval_interval == 0:      
+        if eval_only or iter_num % eval_interval == 0:      
             with torch.no_grad():
                 elo, lw_bd, up_bd = estimate_elo(
                     pi_theta, batch_size, eval_iters if iter_num % hifi_eval_interval != 0 else hifi_eval_iters, ddp_local_rank, f"./pgn/{iter_num}_", 
@@ -341,7 +341,7 @@ try:
                         print(f"saving checkpoint to {ckpt_dir}")
                         torch.save(checkpoint, os.path.join(ckpt_dir, 'ckpt.pt'))
         
-        if iter_num == 0 and eval_only:
+        if eval_only:
             break
 
         # forward backward update, with optional gradient accumulation to simulate larger batch size
