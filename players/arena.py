@@ -8,6 +8,7 @@ import numpy as np
 import subprocess
 from tqdm import tqdm
 from time import time
+import pandas as pd
 
 STREAM_SIZE = 1024 ** 3
 
@@ -88,8 +89,14 @@ class Arena(object):
 
         move_num = 0
 
-        p0_time = 0
-        p1_time = 0
+        p0_bszs = []
+        p0_aslen = []
+        p0_vslen = []
+        p0_times = []
+        p1_bszs = []
+        p1_aslen = []
+        p1_vslen = []
+        p1_times = []
 
         while games_played < total_games:
             while len(game_states) > 0:
@@ -101,13 +108,22 @@ class Arena(object):
                 p1_games = [game_state for game_state in game_states if game_state.turn == 1]
 
                 if len(p0_games) > 0:
+                    p0_bszs.append(len(p0_games))
+                    slens = [len(game_state.state.split(" ")) * 2 for game_state in p0_games]
+                    p0_aslen.append(sum(slens) / len(p0_games))
+                    p0_vslen.append(np.var(slens))
                     bf_time = time()
                     self.player0.play(p0_games)
-                    p0_time += time() - bf_time
+                    p0_times.append((time() - bf_time) / len(p0_games))
+                    
                 if len(p1_games) > 0:
+                    p1_bszs.append(len(p1_games))
+                    slens = [len(game_state.state.split(" ")) * 2 for game_state in p1_games]
+                    p1_aslen.append(sum(slens) / len(p1_games))
+                    p1_vslen.append(np.var(slens))
                     bf_time = time()
                     self.player1.play(p1_games)
-                    p1_time += time() - bf_time
+                    p1_times.append((time() - bf_time) / len(p1_games))
                 
                 reduced_game_states = []
                 for game_state in game_states:
@@ -141,7 +157,11 @@ class Arena(object):
         if self.local_rank == 0:
             prog_bar.close()
 
-        print(f"Run {total_games} games: {self.p_names[0]} - {p0_time}s, {self.p_names[1]} - {p1_time}s")
+        print(f"Run {total_games} games: {self.p_names[0]} - {sum(p0_times)}s, {self.p_names[1]} - {sum(p1_times)}s")
+
+        if self.local_rank == 0:
+            pd.DataFrame({"Bsz": p0_bszs, "Avg SLen": p0_aslen, "SLen Variance": p0_vslen, "Times": p0_times}).to_csv(f"./{self.p_names[0]}-time_settings.csv")
+            pd.DataFrame({"Bsz": p1_bszs, "Avg SLen": p1_aslen, "SLen Variance": p1_vslen,"Times": p1_times}).to_csv(f"./{self.p_names[1]}-time_settings.csv")
 
         if write_out:
             write_out.close()
