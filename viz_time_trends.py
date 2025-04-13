@@ -1,0 +1,57 @@
+import pandas as pd
+import matplotlib.pyplot as plt
+import argparse
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--trends_file", required = True, type = str)
+parser.add_argument("--player", required = False, type = str, default = "GPT")
+args = parser.parse_args()
+
+time_settings = pd.read_csv(args.trends_file)
+plt.figure()
+plt.title(f"{args.player} Bsz vs Times")
+plt.xlabel("# Active Games")
+plt.ylabel("Time (s)")
+plt.scatter(time_settings["Bsz"], time_settings["Times"])
+plt.savefig(f"{args.player} Bsz vs Times")
+plt.show()
+
+plt.figure()
+plt.title(f"{args.player} Average Slen vs Times")
+plt.xlabel("Average Game Length")
+plt.ylabel("Time (s)")
+plt.scatter(time_settings["Avg SLen"], time_settings["Times"])
+plt.savefig(f"{args.player} Avg Slen vs Times")
+plt.show()
+
+plt.figure()
+plt.title(f"{args.player} Slen Variance vs Times")
+plt.xlabel("Game Length Variance")
+plt.ylabel("Time (s)")
+plt.scatter(time_settings["SLen Variance"], time_settings["Times"])
+plt.savefig(f"{args.player} Var Slen vs Times")
+plt.show()
+
+plt.figure()
+plt.title(f"{args.player} Batch Size vs Avg. Seq Length vs Times")
+plt.ylabel("Average Game Length")
+plt.xlabel("Batch Size")
+plt.scatter(time_settings["Bsz"], time_settings["Avg SLen"], c = time_settings["Times"])
+plt.savefig(f"{args.player} Batch Size vs Avg Seq Length vs Times")
+plt.show()
+
+plt.figure()
+plt.title(f"{args.player} Batch Size vs Var. Seq Length vs Times")
+plt.ylabel("Game Length Variance")
+plt.xlabel("Batch Size")
+plt.scatter(time_settings["Bsz"], time_settings["SLen Variance"], c = time_settings["Times"])
+plt.savefig(f"{args.player} Batch Size vs Var Seq Length vs Times")
+plt.show()
+
+plt.figure()
+plt.title(f"{args.player} Avg. Seq Length vs Var. Seq Length vs Times")
+plt.ylabel("Game Length Variance")
+plt.xlabel("Average Game Length")
+plt.scatter(time_settings["Avg SLen"], time_settings["SLen Variance"], c = time_settings["Times"])
+plt.savefig(f"{args.player} Avg Seq Length vs Var Seq Length vs Times")
+plt.show()
