@@ -75,7 +75,7 @@ class SelfAttention(nn.Module):
                 bsz,
                 self.block_size,
                 self.n_embd
-            )
+            ), device = device
         )
 
     def forward(self, x, start_pos = 0, kv_cache = False):
@@ -621,6 +621,9 @@ class GPT(nn.Module):
                 if device == "cuda:0":
                     print("Setting next start position:", token)
                 final_start_pos = token
+
+        if device == "cuda:0":
+            print("Total Tokens:", games_tensor)
 
         return [
             [idx_tensor.item() for idx_tensor in games_tensor[s, mv_msk[s]]]
