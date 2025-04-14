@@ -60,47 +60,39 @@ class SelfAttention(nn.Module):
         self.k_cache = None
         self.v_cache = None
 
+        self.k_cache = torch.zeros(
+                (
+                    self.config.max_batch_size, # Somewhat fragile, relies on the correspondence between Static Batching and KV Cache usage.
+                    self.config.block_size,
+                    self.n_embd               
+                )
+            )
+
+        self.v_cache = torch.zeros(
+            (
+                self.config.max_batch_size, 
+                self.config.block_size,
+                self.n_embd
+            )
+        )
+
     def forward(self, x, start_pos = 0, kv_cache = False):
         B, T, C = x.size() # batch size, sequence length, embedding dimensionality (n_embd)
 
-        if kv_cache and (self.k_cache is None or self.v_cache is None):
-            self.k_cache = torch.zeros(
-                (
-                    B, # Somewhat fragile, relies on the correspondence between Static Batching and KV Cache usage.
-                    self.config.block_size,
-                    self.n_head,
-                    self.C // self.n_head                   
-                ), device = self.x.device
-            )
-
-            self.v_cache = torch.zeros(
-                (
-                    B, 
-                    self.config.block_size,
-                    self.n_head,
-                    self.C // self.n_head
-                ), device = self.x.device
-            )
-        elif kv_cache and (self.k_cache.size(0) < B or self.v_cache.size(0) < B):
-            # Expand KV Cache if original batch size was insufficient.
-            if self.k_cache.size(0) < B:
-                B_diff = B - self.k_cache.size(0)
-                self.k_cache = torch.concat([self.k_cache, torch.zeros((B_diff, self.config.block_size, self.n_head, self.C // self.n_head), device = x.device)], dim = 0)
-            if self.v_cache.size(0) < B:
-                B_diff = B - self.v_cache.size(0)
-                self.v_cache = torch.concat([self.v_cache, torch.zeros((B_diff, self.config.block_size, self.n_head, self.C // self.n_head), device = x.device)], dim = 0)
-
         # calculate query, key, values for all heads in batch and move head forward to be the batch dim
         q, k, v  = self.c_attn(x).split(self.n_embd, dim=2)
+        print(f"Projected Tokens {start_pos}:{start_pos + T}:", q.size(), k.size(), v.size())
         if kv_cache:
-            self.k_cache[:, start_pos : start_pos + T] = k
-            self.v_cache[:, start_pos : start_pos + T] = v
-            k = self.k_cache[:, : start_pos + T]
-            v = self.v_cache[:, : start_pos + T]
+            self.k_cache[:B, start_pos : start_pos + T] = k
+            self.v_cache[:B, start_pos : start_pos + T] = v
+            k = self.k_cache[:B, : start_pos + T]
+            v = self.v_cache[:B, : start_pos + T]
 
-        k = k.view(B, T, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, T, hs)
-        q = q.view(B, T, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, T, hs)
-        v = v.view(B, T, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, T, hs)
+            print(f"Loaded k,v:", k.size(), v.size())
+
+        k = k.view(B, -1, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, T, hs)
+        q = q.view(B, -1, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, T, hs)
+        v = v.view(B, -1, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, T, hs)
 
         # causal self-attention; Self-attend: (B, nh, T, hs) x (B, nh, hs, T) -> (B, nh, T, T)
         if self.flash:
@@ -120,7 +112,7 @@ class SelfAttention(nn.Module):
         # w_r(y): Individual maps for different heads, w_r: nh * hs -> nh * hs => nh x hs
         
         # aux_target = att.transpose(2, 3) @ y
-        y = y.transpose(1, 2).contiguous().view(B, T, C) # re-assemble all head outputs side by side
+        y = y.transpose(1, 2).contiguous().view(B, -1, C) # re-assemble all head outputs side by side
         # aux_loss = torch.mean(
         #     torch.square(
         #         aux_target - self.w_r(y).view(B, T, self.n_head, C // self.n_head).transpose(1, 2)
@@ -174,6 +166,7 @@ class GPTConfig:
     lamda: float = 0.5
     aux_seer_loss: bool = False
     aux_rcausal_loss: bool = False
+    max_batch_size: int = 100
 
 def ce_loss(logits, targets):
     return F.cross_entropy(logits.view(-1, logits.size(-1)), targets.reshape(-1), ignore_index=-1)
@@ -563,22 +556,32 @@ class GPT(nn.Module):
             ],
             device = device
         )
-        
+        if device == "cuda:0":
+            print("Games Tensor:", games_tensor)
         mv_msk = games_tensor == -1
         sp_msk = games_tensor == space_token
 
-        min_prompt_len = 1
+        min_prompt_len = None
         for game_idx in range(games_tensor.size(0)):
             mpl = -1
             for tok in range(games_tensor.size(1) - 1, -1, -1):
                 if sp_msk[game_idx, tok]:
+                    if device == "cuda:0":
+                        print(f"Game {game_idx}: Looking at token {tok}, which is a space.")
                     mpl = tok
                     break
-
+            if device == "cuda:0":
+                print(f"Game {game_idx}'s mPL: {mpl}")
             if mpl == -1:
                 continue
+            
+            if min_prompt_len is None:
+                min_prompt_len = mpl
+            else:
+                min_prompt_len = max(min(min_prompt_len, mpl), 1)
 
-            min_prompt_len = max(min(min_prompt_len, mpl), 1)
+        if device == "cuda:0":
+            print("mPL:", min_prompt_len, "MPL:", max_prompt_len, "MT:", max_token)
 
         temp_start_pos = start_pos
         final_start_pos = None
@@ -586,8 +589,9 @@ class GPT(nn.Module):
         for token in range(min_prompt_len, max_token):        
             if not torch.any(mv_msk[:, token]) and not (overwrite_spaces and torch.any(sp_msk[:, token])):
                 continue
-
-            next_tokens = self.generate_token(games_tensor[:, temp_start_pos:token], temperature = temperature, top_k = top_k, start_pos = temp_start_pos).view(-1)
+            if device == "cuda:0":
+                print(f"Generating Token {token} from context {temp_start_pos}:{token} ({games_tensor[0, :temp_start_pos]} + {games_tensor[0, temp_start_pos : token]})")
+            next_tokens = self.generate_token(games_tensor[:, temp_start_pos:token], temperature = temperature, top_k = top_k, start_pos = temp_start_pos, kv_cache = kv_cache).view(-1)
             # Store next tokens if it is writing into an allotted move slot (within the max_move_size)
             # Can only overwrite a space if terminating the game (i.e. resigning).
             write_msk = mv_msk[:, token] | (overwrite_spaces & sp_msk[:, token] & next_tokens == eos_token)
@@ -600,9 +604,13 @@ class GPT(nn.Module):
             
             if kv_cache:
                 temp_start_pos = token
+                if device == "cuda:0":
+                    print(f"Moving up temp_start_pos: {temp_start_pos}")
 
             if final_start_pos is None and completed_msk is not None and torch.any(~completed_msk & mv_msk[:, token]):
                 # The start_pos for the next iteration will be the first token of the first move made for an incomplete game.
+                if device == "cuda:0":
+                    print("Setting next start position:", token)
                 final_start_pos = token
 
         return [

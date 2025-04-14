@@ -96,6 +96,7 @@ min_lr = 6e-5 # minimum learning rate, should be ~= learning_rate/10 per Chinchi
 # DDP settings
 backend = 'nccl' # 'nccl', 'gloo', etc.
 sf_workers = 14
+sb = True
 # system
 device = 'cuda' # examples: 'cpu', 'cuda', 'cuda:0', 'cuda:1' etc., or try 'mps' on macbooks
 dtype = 'bfloat16' if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else 'float16' # 'float32', 'bfloat16', or 'float16', the latter will auto implement a GradScaler
@@ -305,7 +306,7 @@ try:
                 elo, lw_bd, up_bd = estimate_elo(
                     pi_theta, batch_size, eval_iters if iter_num % hifi_eval_interval != 0 else hifi_eval_iters, ddp_local_rank, f"./pgn/{iter_num}_", 
                     wait, tok_type = tok_type, tokenizer_path = tokenizer_path, world_size = ddp_world_size, use_opening_book = use_opening_book,
-                    invalid_retries = invalid_retries, game_format = game_format, include_idx = include_idx, sf_workers = sf_workers
+                    invalid_retries = invalid_retries, game_format = game_format, include_idx = include_idx, sf_workers = sf_workers, sb = sb
                 )
 
                 if eval_only and iter_num == 0:
@@ -359,7 +360,7 @@ try:
                         use_opening_book = use_opening_book,
                         group_size = group_size if baseline == "GRPO" else 1,
                         sf_rating_games = None, invalid_retries = invalid_retries,
-                        game_format = game_format, include_idx = include_idx, sf_workers = sf_workers
+                        game_format = game_format, include_idx = include_idx, sf_workers = sf_workers, sb = sb
                     )
                     P = P[:, 1:] # B x (S - 1)
                     G = G.to(device)

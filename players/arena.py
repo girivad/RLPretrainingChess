@@ -306,7 +306,7 @@ def sample_sf_games_fast(ratings, games_per_pair = 20):
 
     return [GameState.init_terminal_game(outcome, 0, ["Stockfish", "Stockfish"], [w_elo, b_elo]) for w_elo, b_elo, outcome in zip(elos[:, 0], elos[:, 1], outcomes)]
 
-def sample_games(pi_theta, total_games, bsz, rank, tok_type = "move", tokenizer_path = "./tokenizer/tokenizers/move_token.pkl", self_play = False, write_out = None, sf_rating_games = "fast", sf_time = 0.1, use_opening_book = False, group_size = 1, invalid_retries = 0, game_format = "uci", include_idx = False, sf_workers = 14):
+def sample_games(pi_theta, total_games, bsz, rank, tok_type = "move", tokenizer_path = "./tokenizer/tokenizers/move_token.pkl", self_play = False, write_out = None, sf_rating_games = "fast", sf_time = 0.1, use_opening_book = False, group_size = 1, invalid_retries = 0, game_format = "uci", include_idx = False, sf_workers = 14, sb = False):
     synthetic_games = []
     if sf_rating_games == "fast" and not self_play:
         sf_ratings = range(1350, 2850, 100)
@@ -330,9 +330,16 @@ def sample_games(pi_theta, total_games, bsz, rank, tok_type = "move", tokenizer_
         openings = get_openings()
 
     if write_out:
-        arena.run_games(total_games, write_out, openings = openings)
+        if not sb:
+            arena.run_games(total_games, write_out, openings = openings)
+        else:
+            arena.run_games_sb(total_games, write_out, openings = openings)
     else:
-        G, P, R = arena.run_games(total_games, group_size = group_size, openings = openings)
+        if not sb:
+            G, P, R = arena.run_games(total_games, group_size = group_size, openings = openings)
+        else:
+            G, P, R = arena.run_games_sb(total_games, group_size = group_size, openings = openings)
+
         G = G.type(torch.long)
 
     arena.close()
@@ -373,8 +380,8 @@ def calc_elo(pgn_file):
     
     return elo, lw_bd, up_bd
 
-def estimate_elo(pi_theta, eval_bsz, eval_games, rank, write_out, wait, tok_type = "move", tokenizer_path = "./tokenizer/tokenizers/move_token.pkl", world_size = None, use_opening_book = True, invalid_retries = 0, game_format = "uci", include_idx = False, sf_workers = 14):
-    sample_games(pi_theta, eval_games, eval_bsz, rank, tok_type, tokenizer_path, write_out = write_out, use_opening_book = use_opening_book, invalid_retries = invalid_retries, game_format = game_format, include_idx = include_idx, sf_workers = sf_workers)
+def estimate_elo(pi_theta, eval_bsz, eval_games, rank, write_out, wait, tok_type = "move", tokenizer_path = "./tokenizer/tokenizers/move_token.pkl", world_size = None, use_opening_book = True, invalid_retries = 0, game_format = "uci", include_idx = False, sf_workers = 14, sb = False):
+    sample_games(pi_theta, eval_games, eval_bsz, rank, tok_type, tokenizer_path, write_out = write_out, use_opening_book = use_opening_book, invalid_retries = invalid_retries, game_format = game_format, include_idx = include_idx, sf_workers = sf_workers, sb = sb)
     wait()
     if rank == 0:
         assert world_size is not None
