@@ -99,11 +99,12 @@ class GPTPlayer(object):
         return "GPT"
 
     def play_moves(
-        self, game_states: List[GameState]
+        self, game_states: List[GameState], start_pos = 0, sb = False
     ):
         games = [self.tokenizer(game.state, return_type = "torch", pgn = False).to(self.device) for game in game_states]
-        # Decide games beyond context length
         red_game_states, red_games = [], []
+
+        # Decide games beyond context length
         for game_state, game in zip(game_states, games):
             if game.size(0) >= self.model.module.config.block_size:
                 game_state.decide()
@@ -112,14 +113,16 @@ class GPTPlayer(object):
                 red_games.append(game)
         
         if len(red_game_states) == 0:
-            return
+            return None # Returned start pos doesn't matter, as it is only considered in Static Batching, which needs to start a new batch anyway.
         
-        game_states = red_game_states
-        games = red_games            
+        # Should not remove decided games if implementing static batching.
+        if not sb:
+            game_states = red_game_states
+            games = red_games            
 
         temperature = torch.tensor([min((game_state.retry_limit - game_state.retries)/(game_state.retry_limit) * 1 + 0.001, 0.5) if game_state.retry_limit != 0 else 1 for game_state in game_states]).view(-1, 1).to(self.device)
-        # print("Games Input:", self.detokenizer(games, batch = True))
-        idx_moves = self.model.module.generate_moves(games, device = self.device, max_move_size = self.max_move_size, overwrite_spaces = True, temperature = temperature, top_k = self.k, space_token = int(self.tokenizer(" ")[0]), eos_token = int(self.tokenizer(";")[0]))
+        completed_msk = torch.tensor([game_state.is_complete() for game_state in game_states])
+        idx_moves, start_pos = self.model.module.generate_moves(games, device = self.device, max_move_size = self.max_move_size, overwrite_spaces = True, temperature = temperature, top_k = self.k, space_token = int(self.tokenizer(" ")[0]), eos_token = int(self.tokenizer(";")[0]), start_pos = start_pos, kv_cache = sb, completed_msk = completed_msk)
         str_moves = self.detokenizer(idx_moves, batch = True)
         moves = [move.split()[0] for move in str_moves]
         
@@ -129,10 +132,12 @@ class GPTPlayer(object):
             else:
                 game_state.register_move(move.split(";")[0], parse_move = self.input_type)
         
+        return start_pos
+
     def play(
-        self, games_states: List[GameState]
+        self, games_states: List[GameState], start_pos = 0, sb = False
     ):
-        self.play_moves(games_states)
+        return self.play_moves(games_states, start_pos = start_pos, sb = sb)
 
     def get_config(self) -> dict:
         return {"ckpt": self.ckpt_path, "topk": self.k}

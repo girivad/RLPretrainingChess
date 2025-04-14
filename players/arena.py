@@ -9,6 +9,7 @@ import subprocess
 from tqdm import tqdm
 from time import time
 import pandas as pd
+import math
 
 STREAM_SIZE = 1024 ** 3
 
@@ -172,7 +173,87 @@ class Arena(object):
             P = P[game_order, :]
             R = R[game_order]
             return G, P, R
-    
+
+    def run_games_sb(self, total_games: int, write_out = None, openings = [], group_size = 1):
+        if write_out:
+            write_out = open(write_out + str(self.local_rank), "w")
+            for game in self.init_games:
+                game.write_outcome(write_out)
+        else:
+            assert self.init_games is None or len(self.init_games) == 0, f"Given {len(self.init_games)} initialization games in data collection phase."
+            G = None # B x S
+            P = None # B x (S - 1)
+            R = [] # B x 0 
+
+        if self.local_rank == 0:
+            prog_bar = tqdm(total = total_games)
+
+        games_played = 0
+
+        if len(openings) > 0:
+            # print("Total Games:", total_games)
+            # print("Openings:", len(openings))
+            game_openings = random.choices(openings, k = total_games // group_size)
+            # print("Selected Openings:", len(game_openings))
+            game_openings = sum([[opening] * group_size for opening in game_openings], [])
+            # print("Spread Openings:", len(game_openings))
+            game_perspectives = random.choices([0, 1], k = total_games // group_size)
+            # print("Selected Perspectives:", len(game_perspectives))
+            game_perspectives = sum([[perspective] * group_size for perspective in game_perspectives], [])
+            # print("Spread Perspectives:", len(game_perspectives))
+
+        sf_player_idx = self.p_names.index("Stockfish")
+        sf_player = self.player0 if sf_player_idx == 0 else self.player1
+        gpt_player = self.player0 if sf_player_idx == 1 else self.player1
+
+        for batch in range(math.ceil(total_games / self.eval_bsz)):
+            num_games = min(self.eval_bsz, total_games - games_played)
+            if len(openings) > 0:
+                game_states = [GameState(idx, self.adjudicator, self.p_names, [random.choice(range(1350, 2850, 100)) if "Stockfish" in p_name else None for p_name in self.p_names], opening = game_openings[idx], w_player_id = game_perspectives[idx], invalid_retries = self.invalid_retries, format = self.game_format, include_idx = self.include_idx) for idx in range(games_played, games_played + num_games)]
+            else:
+                game_states = [GameState(idx, self.adjudicator, self.p_names, [random.choice(range(1350, 2850, 100)) if "Stockfish" in p_name else None for p_name in self.p_names], opening = "", w_player_id = random.randint(0, 1), invalid_retries = self.invalid_retries, format = self.game_format, include_idx = self.include_idx) for idx in range(games_played, games_played + num_games)]
+
+            all_games_complete = False
+
+            start_pos = 0
+
+            while not all_games_complete:
+                # Play all Stockfish Games
+                sf_games = [game_state for game_state in game_states if game_state.turn == sf_player_idx and not game_state.is_complete()]
+                if len(sf_games) > 0:  
+                    sf_player.play(sf_games)
+
+                # Now all matches are GPT's Turn
+                start_pos = gpt_player.play(game_states, start_pos = start_pos, sb = True)
+
+                all_games_complete = all([game_state.is_complete() for game_state in game_states])
+            
+            # Process all completed games.
+            for game_state in game_states:
+                if write_out is not None:
+                    game_state.write_outcome(write_out)
+                else:
+                    g, p, r = game_state.get_gpr()
+                    G, P, R = update_gpr(g, G, p, P, r, R, self.tokenize)
+
+                games_played += 1
+
+                if self.local_rank == 0:
+                    prog_bar.update(1)
+
+        if self.local_rank == 0:
+            prog_bar.close()
+
+        if write_out:
+            write_out.close()
+        else:
+            R = torch.tensor(R).type(torch.DoubleTensor)
+            G = G
+            P = P
+            R = R
+            return G, P, R
+
+
     def close(self):
         self.player0.close()
         self.player1.close()

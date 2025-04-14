@@ -56,11 +56,48 @@ class SelfAttention(nn.Module):
             self.register_buffer("bias", torch.tril(torch.ones(config.block_size, config.block_size))
                                         .view(1, 1, config.block_size, config.block_size))
 
-    def forward(self, x):
+        self.config = config
+        self.k_cache = None
+        self.v_cache = None
+
+    def forward(self, x, start_pos = 0, kv_cache = False):
         B, T, C = x.size() # batch size, sequence length, embedding dimensionality (n_embd)
+
+        if kv_cache and (self.k_cache is None or self.v_cache is None):
+            self.k_cache = torch.zeros(
+                (
+                    B, # Somewhat fragile, relies on the correspondence between Static Batching and KV Cache usage.
+                    self.config.block_size,
+                    self.n_head,
+                    self.C // self.n_head                   
+                ), device = self.x.device
+            )
+
+            self.v_cache = torch.zeros(
+                (
+                    B, 
+                    self.config.block_size,
+                    self.n_head,
+                    self.C // self.n_head
+                ), device = self.x.device
+            )
+        elif kv_cache and (self.k_cache.size(0) < B or self.v_cache.size(0) < B):
+            # Expand KV Cache if original batch size was insufficient.
+            if self.k_cache.size(0) < B:
+                B_diff = B - self.k_cache.size(0)
+                self.k_cache = torch.concat([self.k_cache, torch.zeros((B_diff, self.config.block_size, self.n_head, self.C // self.n_head), device = x.device)], dim = 0)
+            if self.v_cache.size(0) < B:
+                B_diff = B - self.v_cache.size(0)
+                self.v_cache = torch.concat([self.v_cache, torch.zeros((B_diff, self.config.block_size, self.n_head, self.C // self.n_head), device = x.device)], dim = 0)
 
         # calculate query, key, values for all heads in batch and move head forward to be the batch dim
         q, k, v  = self.c_attn(x).split(self.n_embd, dim=2)
+        if kv_cache:
+            self.k_cache[:, start_pos : start_pos + T] = k
+            self.v_cache[:, start_pos : start_pos + T] = v
+            k = self.k_cache[:, : start_pos + T]
+            v = self.v_cache[:, : start_pos + T]
+
         k = k.view(B, T, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, T, hs)
         q = q.view(B, T, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, T, hs)
         v = v.view(B, T, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, T, hs)
@@ -119,8 +156,8 @@ class Block(nn.Module):
         self.ln_2 = LayerNorm(config.n_embd, bias=config.bias)
         self.mlp = MLP(config)
 
-    def forward(self, x):
-        x = x + self.attn(self.ln_1(x))
+    def forward(self, x, start_pos = 0, kv_cache = False):
+        x = x + self.attn(self.ln_1(x), start_pos = start_pos, kv_cache = kv_cache)
         x = x + self.mlp(self.ln_2(x))
         return x
 
@@ -306,11 +343,11 @@ class GPT(nn.Module):
         x = self.seer.fusion(x)
         return self.seer.ln_f(x)
 
-    def forward(self, idx, targets = None, evaluate = False, batch_inf = False):
+    def forward(self, idx, targets = None, evaluate = False, batch_inf = False, start_pos = 0, kv_cache = False):
         inference = targets is None
         device = idx.device
         b, t = idx.size()
-        assert t <= self.config.block_size, f"Cannot forward sequence of length {t}, block size is only {self.config.block_size}"
+        assert t + start_pos <= self.config.block_size, f"Cannot forward sequence of length {start_pos}/{t}, block size is only {self.config.block_size}"
         pos = torch.arange(0, t, dtype=torch.long, device=device) # shape (t)
 
         # loss_dict = None #dict()
@@ -324,7 +361,7 @@ class GPT(nn.Module):
         x = emb
 
         for block in self.transformer.h:
-            x = block(x)
+            x = block(x, start_pos = start_pos, kv_cache = kv_cache)
         x = self.transformer.ln_f(x)
 
         if inference and not batch_inf:
@@ -481,8 +518,8 @@ class GPT(nn.Module):
         return mfu
 
     @torch.no_grad()
-    def generate_token(self, idx, temperature = 1.0, top_k = None):
-        logits, _ = self(idx)
+    def generate_token(self, idx, temperature = 1.0, top_k = None, start_pos = 0, kv_cache = False):
+        logits, _ = self(idx, start_pos = start_pos, kv_cache = kv_cache)
         # pluck the logits at the final step and scale by desired temperature
         logits = logits[:, -1, :] / temperature
         # optionally crop the logits to only the top k options
@@ -513,7 +550,7 @@ class GPT(nn.Module):
         return idx
     
     @torch.no_grad()
-    def generate_moves(self, games, device, max_move_size = 5, overwrite_spaces = True, temperature = 1.0, top_k = None, space_token = SPACE_TOKEN, eos_token = EOS_TOKEN):
+    def generate_moves(self, games, device, max_move_size = 5, overwrite_spaces = True, temperature = 1.0, top_k = None, space_token = SPACE_TOKEN, eos_token = EOS_TOKEN, start_pos = 0, kv_cache = False, completed_msk = None):
         """
         Take a list of tokenized games. Autoregressively predict the next move with up to max_move_size tokens for each game, and output as token ids.
         """
@@ -543,11 +580,14 @@ class GPT(nn.Module):
 
             min_prompt_len = max(min(min_prompt_len, mpl), 1)
 
+        temp_start_pos = start_pos
+        final_start_pos = None
+
         for token in range(min_prompt_len, max_token):        
             if not torch.any(mv_msk[:, token]) and not (overwrite_spaces and torch.any(sp_msk[:, token])):
                 continue
 
-            next_tokens = self.generate_token(games_tensor[:, :token], temperature = temperature, top_k = top_k).view(-1)
+            next_tokens = self.generate_token(games_tensor[:, temp_start_pos:token], temperature = temperature, top_k = top_k, start_pos = temp_start_pos).view(-1)
             # Store next tokens if it is writing into an allotted move slot (within the max_move_size)
             # Can only overwrite a space if terminating the game (i.e. resigning).
             write_msk = mv_msk[:, token] | (overwrite_spaces & sp_msk[:, token] & next_tokens == eos_token)
@@ -557,8 +597,15 @@ class GPT(nn.Module):
                 games_tensor[:, token]
             )
             mv_msk[:, token] = mv_msk[:, token] | (overwrite_spaces & sp_msk[:, token] & next_tokens == eos_token)
-        
+            
+            if kv_cache:
+                temp_start_pos = token
+
+            if final_start_pos is None and completed_msk is not None and torch.any(~completed_msk & mv_msk[:, token]):
+                # The start_pos for the next iteration will be the first token of the first move made for an incomplete game.
+                final_start_pos = token
+
         return [
             [idx_tensor.item() for idx_tensor in games_tensor[s, mv_msk[s]]]
             for s in range(games_tensor.size(0))
-        ]
+        ], final_start_pos

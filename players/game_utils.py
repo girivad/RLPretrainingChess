@@ -55,6 +55,9 @@ class GameState(object):
         return game_state
 
     def decide(self):
+        if self.is_complete():
+            return
+
         # Decide who has the advantage in the game and adjudicate the winner
         # Based on https://github.com/adamkarvonen/chess_llm_interpretability/blob/0f61e667fb8a809deda29e5db6c113a0a88f9998/chess_utils.py#L69
         result = self.sf_engine.analyse(self.board, chess.engine.Limit(time = 0.01))
@@ -74,6 +77,9 @@ class GameState(object):
             print(self.termination)
 
     def draw(self): 
+        if self.is_complete():
+            return
+
         self.outcome = "1/2-1/2"
         if self.termination == "":
             self.termination = "Draw"
@@ -82,6 +88,9 @@ class GameState(object):
             print(self.termination)
 
     def resign(self):
+        if self.is_complete():
+            return
+
         w_outcome = 0 if self.turn == self.w_player_id else 1
         assert w_outcome is not None
         self.outcome = "{}-{}".format(
@@ -96,6 +105,9 @@ class GameState(object):
             print(self.termination)
 
     def register_move(self, input_move: str, parse_move: str = "uci"):
+        if self.is_complete():
+            return
+
         move_failed = False
         move_str = input_move
 
