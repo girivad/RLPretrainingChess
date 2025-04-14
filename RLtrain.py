@@ -293,6 +293,8 @@ pi_ref.eval()
 if master_process:
     RL_prg_bar = tqdm(total = max_iters)
 
+pi_theta.create_kv_cache(bsz=batch_size, device = device)
+
 try:
     while True:
         # determine and set the learning rate for this iteration

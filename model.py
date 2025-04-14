@@ -56,22 +56,24 @@ class SelfAttention(nn.Module):
             self.register_buffer("bias", torch.tril(torch.ones(config.block_size, config.block_size))
                                         .view(1, 1, config.block_size, config.block_size))
 
-        self.config = config
+        self.block_size = config.block_size
         self.k_cache = None
         self.v_cache = None
 
+    def create_kv_cache(self, bsz, device):
         self.k_cache = torch.zeros(
-                (
-                    self.config.max_batch_size, # Somewhat fragile, relies on the correspondence between Static Batching and KV Cache usage.
-                    self.config.block_size,
-                    self.n_embd               
-                )
-            )
+            (
+                bsz,
+                self.block_size,
+                self.n_embd
+            ),
+            device = device
+        )
 
         self.v_cache = torch.zeros(
             (
-                self.config.max_batch_size, 
-                self.config.block_size,
+                bsz,
+                self.block_size,
                 self.n_embd
             )
         )
@@ -82,12 +84,12 @@ class SelfAttention(nn.Module):
         # calculate query, key, values for all heads in batch and move head forward to be the batch dim
         q, k, v  = self.c_attn(x).split(self.n_embd, dim=2)
         print(f"Projected Tokens {start_pos}:{start_pos + T}:", q.size(), k.size(), v.size())
-        if kv_cache:
+        
+        if kv_cache and self.k_cache is not None:
             self.k_cache[:B, start_pos : start_pos + T] = k
             self.v_cache[:B, start_pos : start_pos + T] = v
             k = self.k_cache[:B, : start_pos + T]
             v = self.v_cache[:B, : start_pos + T]
-
             print(f"Loaded k,v:", k.size(), v.size())
 
         k = k.view(B, -1, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, T, hs)
@@ -147,6 +149,9 @@ class Block(nn.Module):
         self.attn = SelfAttention(config)
         self.ln_2 = LayerNorm(config.n_embd, bias=config.bias)
         self.mlp = MLP(config)
+
+    def create_kv_cache(self, bsz, device):
+        self.attn.create_kv_cache(bsz, device)
 
     def forward(self, x, start_pos = 0, kv_cache = False):
         x = x + self.attn(self.ln_1(x), start_pos = start_pos, kv_cache = kv_cache)
@@ -280,6 +285,10 @@ class GPT(nn.Module):
             print("number of parameters: %.2fM" % (num_params/1e6,))
         else:
             print("number of parameters: %.2fM" % (num_params/1e9,))
+
+    def create_kv_cache(self, bsz, device):
+        for blk in self.transformer.h:
+            blk.create_kv_cache(bsz, device)
 
     def get_num_params(self, non_embedding=True, train = True):
         """
