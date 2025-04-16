@@ -101,6 +101,10 @@ class GPTPlayer(object):
     def play_moves(
         self, game_states: List[GameState], start_pos = 0, sb = False
     ):
+        
+        if all((game_state.is_complete() for game_state in game_states)):
+            return None
+
         games = [self.tokenizer(game.state, return_type = "torch", pgn = False).to(self.device) for game in game_states]
         red_game_states, red_games = [], []
 
@@ -122,12 +126,12 @@ class GPTPlayer(object):
 
         temperature = torch.tensor([min((game_state.retry_limit - game_state.retries)/(game_state.retry_limit) * 1 + 0.001, 0.5) if game_state.retry_limit != 0 else 1 for game_state in game_states]).view(-1, 1).to(self.device)
         completed_msk = torch.tensor([game_state.is_complete() for game_state in game_states], device = self.device)
-        if self.device == "cuda:0":
-            print("Playing Moves on:", games, self.detokenizer(games, batch = True), "from start_pos:", start_pos, "Completed Mask:", completed_msk)
+        # if self.device == "cuda:0":
+        #     print("Playing Moves on:", games, self.detokenizer(games, batch = True), "from start_pos:", start_pos, "Completed Mask:", completed_msk)
         idx_moves, new_start_pos = self.model.module.generate_moves(games, device = self.device, max_move_size = self.max_move_size, overwrite_spaces = True, temperature = temperature, top_k = self.k, space_token = int(self.tokenizer(" ")[0]), eos_token = int(self.tokenizer(";")[0]), start_pos = start_pos, kv_cache = sb, completed_msk = completed_msk)
         str_moves = self.detokenizer(idx_moves, batch = True)
-        if self.device == "cuda:0":
-            print(str_moves)
+        # if self.device == "cuda:0":
+        #     print(str_moves)
         moves = [move.split(" ")[0] for move in str_moves]
         
         all_moves_success = True
@@ -138,6 +142,11 @@ class GPTPlayer(object):
                 move_success = game_state.register_move(move.split(";")[0], parse_move = self.input_type)
 
             all_moves_success = all_moves_success and move_success
+
+        if all_moves_success and self.device == "cuda:0":
+            print("Updating Start Position:", start_pos, "->", new_start_pos)
+        elif self.device == "cuda:0":
+            print("Retaining Start Position:", start_pos, "instead of", new_start_pos)
 
         return new_start_pos if all_moves_success else start_pos
 

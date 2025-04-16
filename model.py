@@ -83,28 +83,31 @@ class SelfAttention(nn.Module):
 
         # calculate query, key, values for all heads in batch and move head forward to be the batch dim
         q, k, v  = self.c_attn(x).split(self.n_embd, dim=2)
-        print(f"Projected Tokens {start_pos}:{start_pos + T}:", q.size(), k.size(), v.size())
+        # print(f"Projected Tokens {start_pos}:{start_pos + T}:", q.size(), k.size(), v.size())
         
         if kv_cache and self.k_cache is not None:
             self.k_cache[:B, start_pos : start_pos + T] = k
             self.v_cache[:B, start_pos : start_pos + T] = v
             k = self.k_cache[:B, : start_pos + T]
             v = self.v_cache[:B, : start_pos + T]
+        elif kv_cache:
+            raise Exception("KV Cache invoked before created.")
 
-        k = k.view(B, -1, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, T, hs)
-        q = q.view(B, -1, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, T, hs)
-        v = v.view(B, -1, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, T, hs)
+        k = k.view(B, -1, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, Tk, hs)
+        q = q.view(B, -1, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, Tq, hs)
+        v = v.view(B, -1, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, Tk, hs)
 
-        print("q:", q.size(), "k:", k.size(), "v:", v.size())
+        # print("q:", q.size(), "k:", k.size(), "v:", v.size())
 
         # causal self-attention; Self-attend: (B, nh, T, hs) x (B, nh, hs, T) -> (B, nh, T, T)
         if self.flash:
+            # print("Using Flash Attention")
             # efficient attention using Flash Attention CUDA kernels
-            y = torch.nn.functional.scaled_dot_product_attention(q, k, v, attn_mask=None, dropout_p=self.dropout if self.training else 0, is_causal=True)
+            y = torch.nn.functional.scaled_dot_product_attention(q, k, v, attn_mask=None, dropout_p=self.dropout if self.training else 0, is_causal= (start_pos == 0 or not kv_cache))
         else:
             # manual implementation of attention
-            att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
-            att = att.masked_fill(self.bias[:,:,:T,:T] == 0, float('-inf'))
+            att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1))) # (B, nh, Tq, Tk)
+            att = att.masked_fill(self.bias[:,:,start_pos : start_pos + T,: start_pos + T] == 0, float('-inf'))
             att = F.softmax(att, dim=-1)
             att = self.attn_dropout(att)
             y = att @ v # (B, nh, T, T) x (B, nh, T, hs) -> (B, nh, T, hs)
@@ -361,14 +364,21 @@ class GPT(nn.Module):
         pos_emb = self.transformer.wpe(pos) # position embeddings of shape (t, n_embd)
         emb = self.transformer.drop(tok_emb + pos_emb)
 
+        assert len(emb.size()) == 3, (emb.size())
+
         x = emb
 
         for block in self.transformer.h:
             x = block(x, start_pos = start_pos, kv_cache = kv_cache)
+            assert len(x.size()) == 3, (x.size())
         x = self.transformer.ln_f(x)
+        assert len(x.size()) == 3, (x.size())
 
         if inference and not batch_inf:
-            return self.lm_head(x[:, [-1], :]), None
+            try:
+                return self.lm_head(x[:, [-1], :]), None
+            except Exception as e:
+                raise Exception(f"Error Unembedding: {e}. x_in: ({b}, {t}), emb: {emb.size()}, x: {x.size()}. Start Pos: {start_pos}")
         elif inference:
             return self.lm_head(x), None
 
@@ -522,6 +532,8 @@ class GPT(nn.Module):
 
     @torch.no_grad()
     def generate_token(self, idx, temperature = 1.0, top_k = None, start_pos = 0, kv_cache = False):
+        assert len(idx.size()) == 2, (idx.size(), idx, start_pos)
+        assert idx.size(1) > 0, (idx.size(), idx, start_pos)
         logits, _ = self(idx, start_pos = start_pos, kv_cache = kv_cache)
         # pluck the logits at the final step and scale by desired temperature
         logits = logits[:, -1, :] / temperature
@@ -557,7 +569,7 @@ class GPT(nn.Module):
         """
         Take a list of tokenized games. Autoregressively predict the next move with up to max_move_size tokens for each game, and output as token ids.
         """
-       
+
         max_prompt_len = max((len(game) for game in games))
         max_token = max_prompt_len + max_move_size
         games_tensor = torch.tensor(
@@ -566,22 +578,25 @@ class GPT(nn.Module):
             ],
             device = device
         )
-        if device == "cuda:0":
-            print("Games Tensor:", games_tensor)
+        # if device == "cuda:0":
+        #     print("Games Tensor:", games_tensor)
         mv_msk = games_tensor == -1
         sp_msk = games_tensor == space_token
 
         min_prompt_len = None
         for game_idx in range(games_tensor.size(0)):
+            if completed_msk is not None and completed_msk[game_idx]:
+                continue
+
             mpl = -1
             for tok in range(games_tensor.size(1) - 1, -1, -1):
                 if sp_msk[game_idx, tok]:
-                    if device == "cuda:0":
-                        print(f"Game {game_idx}: Looking at token {tok}, which is a space.")
+                    # if device == "cuda:0":
+                    #     print(f"Game {game_idx}: Looking at token {tok}, which is a space.")
                     mpl = tok
                     break
-            if device == "cuda:0":
-                print(f"Game {game_idx}'s mPL: {mpl}")
+            # if device == "cuda:0":
+            #     print(f"Game {game_idx}'s mPL: {mpl}")
             if mpl == -1:
                 continue
             
@@ -590,8 +605,10 @@ class GPT(nn.Module):
             else:
                 min_prompt_len = max(min(min_prompt_len, mpl), 1)
 
-        if device == "cuda:0":
-            print("mPL:", min_prompt_len, "MPL:", max_prompt_len, "MT:", max_token)
+        min_prompt_len = min_prompt_len or 1
+
+        # if device == "cuda:0":
+        #     print("mPL:", min_prompt_len, "MPL:", max_prompt_len, "MT:", max_token)
 
         temp_start_pos = start_pos
         final_start_pos = None
@@ -599,11 +616,15 @@ class GPT(nn.Module):
         for token in range(min_prompt_len, max_token):        
             if not torch.any(mv_msk[:, token]) and not (overwrite_spaces and torch.any(sp_msk[:, token])):
                 continue
+            # if device == "cuda:0":
+            #     print(f"Generating Token {token} from context {temp_start_pos}:{token} ({games_tensor[0, :temp_start_pos]} + {games_tensor[0, temp_start_pos : token]})")
             if device == "cuda:0":
-                print(f"Generating Token {token} from context {temp_start_pos}:{token} ({games_tensor[0, :temp_start_pos]} + {games_tensor[0, temp_start_pos : token]})")
+                print("TSP:", temp_start_pos, "Token:", token)
+            assert temp_start_pos != token, (device, temp_start_pos, games_tensor[0, :temp_start_pos])
+            assert not torch.any(games_tensor[:, temp_start_pos : token] < 0), (device, games_tensor[:, temp_start_pos : token], temp_start_pos, token)
             next_tokens = self.generate_token(games_tensor[:, temp_start_pos:token], temperature = temperature, top_k = top_k, start_pos = temp_start_pos, kv_cache = kv_cache).view(-1)
             
-            print("Prediction:", next_tokens)
+            # print("Prediction:", next_tokens)
             # Store next tokens if it is writing into an allotted move slot (within the max_move_size)
             # Can only overwrite a space if terminating the game (i.e. resigning).
             write_msk = mv_msk[:, token] | (overwrite_spaces & sp_msk[:, token] & next_tokens == eos_token)
@@ -616,17 +637,17 @@ class GPT(nn.Module):
             
             if kv_cache:
                 temp_start_pos = token
-                if device == "cuda:0":
-                    print(f"Moving up temp_start_pos: {temp_start_pos}")
+                # if device == "cuda:0":
+                #     print(f"Moving up temp_start_pos: {temp_start_pos}")
 
             if final_start_pos is None and completed_msk is not None and torch.any(~completed_msk & mv_msk[:, token]):
                 # The start_pos for the next iteration will be the first token of the first move made for an incomplete game.
-                if device == "cuda:0":
-                    print("Setting next start position:", token)
+                # if device == "cuda:0":
+                #     print("Setting next start position:", token)
                 final_start_pos = token
 
-        if device == "cuda:0":
-            print("Total Tokens:", games_tensor)
+        # if device == "cuda:0":
+        #     print("Total Tokens:", games_tensor)
 
         return [
             [idx_tensor.item() for idx_tensor in games_tensor[s, mv_msk[s]]]
