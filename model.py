@@ -90,11 +90,12 @@ class SelfAttention(nn.Module):
             self.v_cache[:B, start_pos : start_pos + T] = v
             k = self.k_cache[:B, : start_pos + T]
             v = self.v_cache[:B, : start_pos + T]
-            print(f"Loaded k,v:", k.size(), v.size())
 
         k = k.view(B, -1, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, T, hs)
         q = q.view(B, -1, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, T, hs)
         v = v.view(B, -1, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, T, hs)
+
+        print("q:", q.size(), "k:", k.size(), "v:", v.size())
 
         # causal self-attention; Self-attend: (B, nh, T, hs) x (B, nh, hs, T) -> (B, nh, T, T)
         if self.flash:
@@ -601,6 +602,8 @@ class GPT(nn.Module):
             if device == "cuda:0":
                 print(f"Generating Token {token} from context {temp_start_pos}:{token} ({games_tensor[0, :temp_start_pos]} + {games_tensor[0, temp_start_pos : token]})")
             next_tokens = self.generate_token(games_tensor[:, temp_start_pos:token], temperature = temperature, top_k = top_k, start_pos = temp_start_pos, kv_cache = kv_cache).view(-1)
+            
+            print("Prediction:", next_tokens)
             # Store next tokens if it is writing into an allotted move slot (within the max_move_size)
             # Can only overwrite a space if terminating the game (i.e. resigning).
             write_msk = mv_msk[:, token] | (overwrite_spaces & sp_msk[:, token] & next_tokens == eos_token)

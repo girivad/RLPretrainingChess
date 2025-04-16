@@ -56,7 +56,7 @@ class GameState(object):
 
     def decide(self):
         if self.is_complete():
-            return
+            return True
 
         # Decide who has the advantage in the game and adjudicate the winner
         # Based on https://github.com/adamkarvonen/chess_llm_interpretability/blob/0f61e667fb8a809deda29e5db6c113a0a88f9998/chess_utils.py#L69
@@ -76,9 +76,11 @@ class GameState(object):
         if self.game_id == 0:
             print(self.termination)
 
+        return True
+
     def draw(self): 
         if self.is_complete():
-            return
+            return True
 
         self.outcome = "1/2-1/2"
         if self.termination == "":
@@ -86,10 +88,12 @@ class GameState(object):
 
         if self.game_id == 0:
             print(self.termination)
+        
+        return True
 
     def resign(self):
         if self.is_complete():
-            return
+            return True
 
         w_outcome = 0 if self.turn == self.w_player_id else 1
         assert w_outcome is not None
@@ -103,10 +107,12 @@ class GameState(object):
         
         if self.game_id == 0:
             print(self.termination)
+        
+        return True
 
     def register_move(self, input_move: str, parse_move: str = "uci"):
         if self.is_complete():
-            return
+            return True
 
         move_failed = False
         move_str = input_move
@@ -129,7 +135,7 @@ class GameState(object):
                     print("Retrying move...")
                 self.termination = ""
                 self.retries -= 1
-                return
+                return False
 
             move_failed = True
         except InvalidMoveError:
@@ -140,7 +146,7 @@ class GameState(object):
                     print("Retrying move...")
                 self.termination = ""
                 self.retries -= 1
-                return
+                return False
 
             move_failed = True
         except AmbiguousMoveError:
@@ -151,7 +157,7 @@ class GameState(object):
                     print("Retrying move...")
                 self.termination = ""
                 self.retries -= 1
-                return
+                return False
 
             move_failed = True
 
@@ -180,7 +186,7 @@ class GameState(object):
 
         if move_failed:
             self.resign()
-            return
+            return True # Doesn't matter, as the resignation means the game is over.
 
         self.board.push(move)
         outcome = self.board.outcome()
@@ -196,9 +202,10 @@ class GameState(object):
                 self.G.append(f"{self.move_idx}.")
                 self.P.append(0)
 
-            return
+            return True
                 
         self.outcome = self.board.result()
+        return True
 
     def is_complete(self):
         return self.outcome != "" and self.outcome is not None

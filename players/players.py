@@ -124,19 +124,22 @@ class GPTPlayer(object):
         completed_msk = torch.tensor([game_state.is_complete() for game_state in game_states], device = self.device)
         if self.device == "cuda:0":
             print("Playing Moves on:", games, self.detokenizer(games, batch = True), "from start_pos:", start_pos, "Completed Mask:", completed_msk)
-        idx_moves, start_pos = self.model.module.generate_moves(games, device = self.device, max_move_size = self.max_move_size, overwrite_spaces = True, temperature = temperature, top_k = self.k, space_token = int(self.tokenizer(" ")[0]), eos_token = int(self.tokenizer(";")[0]), start_pos = start_pos, kv_cache = sb, completed_msk = completed_msk)
+        idx_moves, new_start_pos = self.model.module.generate_moves(games, device = self.device, max_move_size = self.max_move_size, overwrite_spaces = True, temperature = temperature, top_k = self.k, space_token = int(self.tokenizer(" ")[0]), eos_token = int(self.tokenizer(";")[0]), start_pos = start_pos, kv_cache = sb, completed_msk = completed_msk)
         str_moves = self.detokenizer(idx_moves, batch = True)
         if self.device == "cuda:0":
             print(str_moves)
         moves = [move.split(" ")[0] for move in str_moves]
         
+        all_moves_success = True
         for game_state, move in zip(game_states, moves):
             if move[0] == ";":
-                game_state.resign()
+                move_success = game_state.resign()
             else:
-                game_state.register_move(move.split(";")[0], parse_move = self.input_type)
-        
-        return start_pos
+                move_success = game_state.register_move(move.split(";")[0], parse_move = self.input_type)
+
+            all_moves_success = all_moves_success and move_success
+
+        return new_start_pos if all_moves_success else start_pos
 
     def play(
         self, games_states: List[GameState], start_pos = 0, sb = False
