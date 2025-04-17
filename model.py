@@ -578,6 +578,14 @@ class GPT(nn.Module):
             ],
             device = device
         )
+
+        if completed_msk is not None:
+            games_tensor = torch.where(
+                ~completed_msk.view(-1, 1),
+                games_tensor,
+                torch.full((1, max_token), eos_token, device = device)
+            )
+
         # if device == "cuda:0":
         #     print("Games Tensor:", games_tensor)
         mv_msk = games_tensor == -1
@@ -591,12 +599,8 @@ class GPT(nn.Module):
             mpl = -1
             for tok in range(games_tensor.size(1) - 1, -1, -1):
                 if sp_msk[game_idx, tok]:
-                    # if device == "cuda:0":
-                    #     print(f"Game {game_idx}: Looking at token {tok}, which is a space.")
                     mpl = tok
                     break
-            # if device == "cuda:0":
-            #     print(f"Game {game_idx}'s mPL: {mpl}")
             if mpl == -1:
                 continue
             
@@ -621,7 +625,7 @@ class GPT(nn.Module):
             if device == "cuda:0":
                 print("TSP:", temp_start_pos, "Token:", token)
             assert temp_start_pos != token, (device, temp_start_pos, games_tensor[0, :temp_start_pos])
-            assert not torch.any(games_tensor[:, temp_start_pos : token] < 0), (device, games_tensor[:, temp_start_pos : token], temp_start_pos, token)
+            assert not torch.any(games_tensor[:, temp_start_pos : token] < 0), (device, games_tensor[:, temp_start_pos : token], temp_start_pos, token, min_prompt_len, max_token)
             next_tokens = self.generate_token(games_tensor[:, temp_start_pos:token], temperature = temperature, top_k = top_k, start_pos = temp_start_pos, kv_cache = kv_cache).view(-1)
             
             # print("Prediction:", next_tokens)
