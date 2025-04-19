@@ -71,9 +71,9 @@ class Arena(object):
             prog_bar = tqdm(total = total_games)
 
         if len(openings) > 0:
-            # print("Total Games:", total_games)
-            # print("Openings:", len(openings))
-            game_openings = random.choices(openings, k = total_games // group_size)
+            print("Total Games:", total_games)
+            print("Openings:", len(openings))
+            game_openings = random.sample(openings, k = total_games // group_size)
             # print("Selected Openings:", len(game_openings))
             game_openings = sum([[opening] * group_size for opening in game_openings], [])
             # print("Spread Openings:", len(game_openings))

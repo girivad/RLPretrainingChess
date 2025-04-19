@@ -143,9 +143,9 @@ class GPTPlayer(object):
 
             all_moves_success = all_moves_success and move_success
 
-        if all_moves_success and self.device == "cuda:0":
+        if sb and all_moves_success and self.device == "cuda:0":
             print("Updating Start Position:", start_pos, "->", new_start_pos)
-        elif self.device == "cuda:0":
+        elif sb and self.device == "cuda:0":
             print("Retaining Start Position:", start_pos, "instead of", new_start_pos)
 
         return new_start_pos if all_moves_success else start_pos
