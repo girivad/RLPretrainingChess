@@ -293,7 +293,8 @@ pi_ref.eval()
 if master_process:
     RL_prg_bar = tqdm(total = max_iters)
 
-pi_theta.module.create_kv_cache(bsz=batch_size, device = device)
+if sb:
+    pi_theta.module.create_kv_cache(bsz=batch_size, device = device)
 
 try:
     while True:
