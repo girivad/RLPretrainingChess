@@ -90,15 +90,15 @@ class Arena(object):
         base_game_id = self.eval_bsz
 
         player_bszs = defaultdict(list)
-        player_aslen = []
-        player_vslen = []
-        player_move_times = []
-        player_times = []
+        player_aslen = defaultdict(list)
+        player_vslen = defaultdict(list)
+        player_move_times = defaultdict(list)
+        player_times = defaultdict(list)
 
         sf_player_id = self.p_names.index("Stockfish")
         turn = sf_player_id if sf_player_id != -1 else random.randint(0, 1)
 
-        while len(game_states) > 0:
+        while games_played < total_games:
             turn_games = [game_state for game_state in game_states if game_state.turn == turn]
             curr_player = self.player0 if turn == 0 else self.player1
             if len(turn_games) > 0:
@@ -130,6 +130,10 @@ class Arena(object):
                     prog_bar.update(1)
 
             game_states = active_game_states
+            turn = 1 - turn
+            if turn == sf_player_id:
+                continue
+
             new_games = min(self.eval_bsz - len(game_states), total_games - (games_played + len(game_states))) # Min(Bsz - active_games, total_games - (games_played + active_games))
             if len(openings) > 0:
                 game_states += [GameState(base_game_id + game_id, self.adjudicator, self.p_names, [random.choice(range(1350, 2850, 100)) if "Stockfish" in p_name else None for p_name in self.p_names], opening = game_openings[base_game_id + game_id], w_player_id = game_perspectives[base_game_id + game_id], invalid_retries = self.invalid_retries, format = self.game_format, include_idx = self.include_idx) for game_id in range(new_games)]
