@@ -151,15 +151,15 @@ class Arena(object):
             print(f"Run {total_games} games: " + 
                 "".join(
                     [
-                        f"{self.p_names[player_id]} - {sum(player_move_times[player_id]) / len(player_move_times[player_id])}s/Move, {sum(player_times[player_id])}s Overall" 
+                        f"{self.p_names[player_id]} - {sum(player_move_times[self.p_names[player_id]]) / len(player_move_times[self.p_names[player_id]])}s/Move, {sum(player_times[self.p_names[player_id]])}s Overall" 
                         for player_id in range(2)
                     ]
                 )
             )
 
-        if self.local_rank == 0:
-            for player_id in range(2):
-                pd.DataFrame({"Bsz": player_bszs[player_id], "Avg SLen": player_aslen[player_id], "SLen Variance": player_vslen[player_id], "Times": player_times[player_id]}).to_csv(f"./{self.p_names[player_id]}-time_settings.csv")
+        # if self.local_rank == 0:
+        #     for player_id in range(2):
+        #         pd.DataFrame({"Bsz": player_bszs[player_id], "Avg SLen": player_aslen[player_id], "SLen Variance": player_vslen[player_id], "Times": player_times[player_id]}).to_csv(f"./{self.p_names[player_id]}-time_settings.csv")
 
         if write_out:
             write_out.close()
