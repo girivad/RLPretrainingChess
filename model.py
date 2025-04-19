@@ -570,32 +570,28 @@ class GPT(nn.Module):
         Take a list of tokenized games. Autoregressively predict the next move with up to max_move_size tokens for each game, and output as token ids.
         """
 
-        max_prompt_len = max((len(game) for game in games))
-        max_token = max_prompt_len + max_move_size
+        max_prompt_len = max((len(game) for game in games)) # Maximum number of tokens in a single game (also acts as the first token idx to fill in)
+        max_token = max_prompt_len + max_move_size # Final Token to predict is max_move_size shifted from the max_prompt_len
         games_tensor = torch.tensor(
             [
                 list(game) + [-1] * max_move_size + [eos_token] * (max_token - len(game) - max_move_size) for game in games
             ],
             device = device
-        )
+        ) # Each game is represented as a sequence of game tokens, a limited move-sized slot and then padded with end-of-game tokens.
+
+        mv_msk = games_tensor == -1 # The move mask identifies which slots should be retrieved from the final game state as the current move. Even completed games are allocated a slot, though the slot there must be filled in with padding tokens.
 
         if completed_msk is not None:
             games_tensor = torch.where(
                 ~completed_msk.view(-1, 1),
                 games_tensor,
                 torch.full((1, max_token), eos_token, device = device)
-            )
+            ) # For completed games, replace with sequences of only padding tokens. 
 
-        # if device == "cuda:0":
-        #     print("Games Tensor:", games_tensor)
-        mv_msk = games_tensor == -1
         sp_msk = games_tensor == space_token
 
         min_prompt_len = None
         for game_idx in range(games_tensor.size(0)):
-            if completed_msk is not None and completed_msk[game_idx]:
-                continue
-
             mpl = -1
             for tok in range(games_tensor.size(1) - 1, -1, -1):
                 if sp_msk[game_idx, tok]:
@@ -609,7 +605,7 @@ class GPT(nn.Module):
             else:
                 min_prompt_len = max(min(min_prompt_len, mpl), 1)
 
-        min_prompt_len = min_prompt_len or 1
+        min_prompt_len = min_prompt_len
 
         # if device == "cuda:0":
         #     print("mPL:", min_prompt_len, "MPL:", max_prompt_len, "MT:", max_token)
@@ -621,14 +617,14 @@ class GPT(nn.Module):
             if not torch.any(mv_msk[:, token]) and not (overwrite_spaces and torch.any(sp_msk[:, token])):
                 continue
             # if device == "cuda:0":
-            #     print(f"Generating Token {token} from context {temp_start_pos}:{token} ({games_tensor[0, :temp_start_pos]} + {games_tensor[0, temp_start_pos : token]})")
-            if device == "cuda:0":
-                print("TSP:", temp_start_pos, "Token:", token)
+            #     print(f"Generating Token {token} from context {temp_start_pos}:{token} ({games_tensor[:, :temp_start_pos]} + {games_tensor[:, temp_start_pos : token]})")
+            # if device == "cuda:0":
+            #     print("TSP:", temp_start_pos, "Token:", token)
             assert temp_start_pos != token, (device, temp_start_pos, games_tensor[0, :temp_start_pos])
             assert not torch.any(games_tensor[:, temp_start_pos : token] < 0), (device, games_tensor[:, temp_start_pos : token], temp_start_pos, token, min_prompt_len, max_token)
             next_tokens = self.generate_token(games_tensor[:, temp_start_pos:token], temperature = temperature, top_k = top_k, start_pos = temp_start_pos, kv_cache = kv_cache).view(-1)
-            
-            # print("Prediction:", next_tokens)
+            # if device == "cuda:0":
+            #     print("Prediction:", next_tokens)
             # Store next tokens if it is writing into an allotted move slot (within the max_move_size)
             # Can only overwrite a space if terminating the game (i.e. resigning).
             write_msk = mv_msk[:, token] | (overwrite_spaces & sp_msk[:, token] & next_tokens == eos_token)
