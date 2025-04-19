@@ -131,7 +131,7 @@ class Arena(object):
 
             game_states = active_game_states
             turn = 1 - turn
-            if turn == sf_player_id:
+            if turn != sf_player_id:
                 continue
 
             new_games = min(self.eval_bsz - len(game_states), total_games - (games_played + len(game_states))) # Min(Bsz - active_games, total_games - (games_played + active_games))
