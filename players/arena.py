@@ -93,10 +93,12 @@ class Arena(object):
         p0_bszs = []
         p0_aslen = []
         p0_vslen = []
+        p0_move_times = []
         p0_times = []
         p1_bszs = []
         p1_aslen = []
         p1_vslen = []
+        p1_move_times = []
         p1_times = []
 
         while games_played < total_games:
@@ -115,7 +117,9 @@ class Arena(object):
                     p0_vslen.append(np.var(slens))
                     bf_time = time()
                     self.player0.play(p0_games)
-                    p0_times.append((time() - bf_time) / len(p0_games))
+                    interval = time() - bf_time
+                    p0_move_times.append(interval / len(p0_games))
+                    p0_times.append(interval)
                     
                 if len(p1_games) > 0:
                     p1_bszs.append(len(p1_games))
@@ -124,7 +128,9 @@ class Arena(object):
                     p1_vslen.append(np.var(slens))
                     bf_time = time()
                     self.player1.play(p1_games)
-                    p1_times.append((time() - bf_time) / len(p1_games))
+                    interval = time() - bf_time
+                    p1_move_times.append(interval / len(p1_games))
+                    p1_times.append(interval)
                 
                 reduced_game_states = []
                 for game_state in game_states:
@@ -158,7 +164,7 @@ class Arena(object):
         if self.local_rank == 0:
             prog_bar.close()
 
-        print(f"Run {total_games} games: {self.p_names[0]} - {sum(p0_times)}s, {self.p_names[1]} - {sum(p1_times)}s")
+        print(f"Run {total_games} games: {self.p_names[0]} - {sum(p0_move_times) / len(p0_move_times)}s/Move, {sum(p0_times)}s Overall, {self.p_names[1]} - {sum(p1_move_times) / len(p1_move_times)}s/Move, {sum(p1_times)}s Overall.")
 
         if self.local_rank == 0:
             pd.DataFrame({"Bsz": p0_bszs, "Avg SLen": p0_aslen, "SLen Variance": p0_vslen, "Times": p0_times}).to_csv(f"./{self.p_names[0]}-time_settings.csv")
