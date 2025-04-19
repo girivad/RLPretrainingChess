@@ -8,9 +8,9 @@ model_dir = "../../model_vol/"
 
 out_dir = os.path.join(model_dir, pretrain_run_name, f"ckpt_{ckpt_num}")
 eval_interval = 100
-eval_iters = 100
+eval_iters = 512
 hifi_eval_interval = 2500
-hifi_eval_iters = 300 # 1500
+hifi_eval_iters = 512 # 1500
 ckpt_interval = 500
 # I'm not sure what's going on, but when log_interval == 100, the time per iter is inaccurate and much longer than it should be
 # when running on multiple GPUs. TODO: investigate
@@ -24,7 +24,7 @@ wandb_run_name = run_name
 
 # dataset
 gradient_accumulation_steps = 2
-batch_size = 50
+batch_size = 128
 block_size = 1023  # context of up to 1023 tokens (because dataset block size is 1024)
 
 # tokenizer
@@ -50,7 +50,8 @@ beta2 = 0.95  # make a bit bigger because number of tokens per iter is small
 clip_eps = 0.04
 
 baseline = "GRPO"
-group_size = 25
+group_size = 10
+use_opening_book = True
 clip_eps = 0.2
 self_play = False
 
