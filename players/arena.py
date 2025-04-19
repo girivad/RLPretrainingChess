@@ -10,6 +10,7 @@ from tqdm import tqdm
 from time import time
 import pandas as pd
 import math
+from collections import defaultdict
 
 STREAM_SIZE = 1024 ** 3
 
@@ -71,8 +72,8 @@ class Arena(object):
             prog_bar = tqdm(total = total_games)
 
         if len(openings) > 0:
-            print("Total Games:", total_games)
-            print("Openings:", len(openings))
+            # print("Total Games:", total_games)
+            # print("Openings:", len(openings))
             game_openings = random.sample(openings, k = total_games // group_size)
             # print("Selected Openings:", len(game_openings))
             game_openings = sum([[opening] * group_size for opening in game_openings], [])
@@ -88,87 +89,72 @@ class Arena(object):
 
         base_game_id = self.eval_bsz
 
-        move_num = 0
+        player_bszs = defaultdict(list)
+        player_aslen = []
+        player_vslen = []
+        player_move_times = []
+        player_times = []
 
-        p0_bszs = []
-        p0_aslen = []
-        p0_vslen = []
-        p0_move_times = []
-        p0_times = []
-        p1_bszs = []
-        p1_aslen = []
-        p1_vslen = []
-        p1_move_times = []
-        p1_times = []
+        sf_player_id = self.p_names.index("Stockfish")
+        turn = sf_player_id if sf_player_id != -1 else random.randint(0, 1)
 
-        while games_played < total_games:
-            while len(game_states) > 0:
-                # if self.local_rank == 0 and len(game_states) > 0 and game_states[0].game_id == 0:    
-                #     print(f"Game {game_states[0].game_id}: \'{game_states[0].state}\'")
+        while len(game_states) > 0:
+            turn_games = [game_state for game_state in game_states if game_state.turn == turn]
+            curr_player = self.player0 if turn == 0 else self.player1
+            if len(turn_games) > 0:
+                player_bszs[self.p_names[turn]].append(len(turn_games))
+                slens = [len(game_state.state.split(" ")) * 2 for game_state in turn_games]
+                player_aslen[self.p_names[turn]].append(sum(slens) / len(turn_games))
+                player_vslen[self.p_names[turn]].append(np.var(slens))
+                bf_time = time()
+                curr_player.play(turn_games)
+                interval = time() - bf_time
+                player_move_times[self.p_names[turn]].append(interval / len(turn_games))
+                player_times[self.p_names[turn]].append(interval)
 
-                move_num += 1
-                p0_games = [game_state for game_state in game_states if game_state.turn == 0]
-                p1_games = [game_state for game_state in game_states if game_state.turn == 1]
+            active_game_states = []
+            for game_state in game_states:
+                if not game_state.is_complete():
+                    active_game_states.append(game_state)
+                    continue
 
-                if len(p0_games) > 0:
-                    p0_bszs.append(len(p0_games))
-                    slens = [len(game_state.state.split(" ")) * 2 for game_state in p0_games]
-                    p0_aslen.append(sum(slens) / len(p0_games))
-                    p0_vslen.append(np.var(slens))
-                    bf_time = time()
-                    self.player0.play(p0_games)
-                    interval = time() - bf_time
-                    p0_move_times.append(interval / len(p0_games))
-                    p0_times.append(interval)
-                    
-                if len(p1_games) > 0:
-                    p1_bszs.append(len(p1_games))
-                    slens = [len(game_state.state.split(" ")) * 2 for game_state in p1_games]
-                    p1_aslen.append(sum(slens) / len(p1_games))
-                    p1_vslen.append(np.var(slens))
-                    bf_time = time()
-                    self.player1.play(p1_games)
-                    interval = time() - bf_time
-                    p1_move_times.append(interval / len(p1_games))
-                    p1_times.append(interval)
-                
-                reduced_game_states = []
-                for game_state in game_states:
-                    if not game_state.is_complete():
-                        reduced_game_states.append(game_state)
-                        continue
-                    if write_out is not None:
-                        game_state.write_outcome(write_out)
-                    else:
-                        g, p, r = game_state.get_gpr()
-                        G, P, R = update_gpr(g, G, p, P, r, R, self.tokenize)
-                        game_order[game_state.game_id] = games_played
-    
-                    # if self.local_rank == 0:
-                    #     # print(f"Completion: {game_state.game_id}: \'{game_state.state}\'\ndue to \'{game_state.termination}\'")
-                    #     print(f"Outcome: {game_state.game_id}: \'{game_state.outcome}\' with players \'{game_state.players[game_state.w_player_id]} vs {game_state.players[1 - game_state.w_player_id]}\'")
-
-                    games_played += 1
-                    if self.local_rank == 0:
-                        prog_bar.update(1)
-
-                game_states = reduced_game_states
-                new_games = min(self.eval_bsz - len(game_states), total_games - (games_played + len(game_states))) # Min(Bsz - reduced_games, total_games - (games_played + reduced_games))
-                if len(openings) > 0:
-                    game_states += [GameState(base_game_id + game_id, self.adjudicator, self.p_names, [random.choice(range(1350, 2850, 100)) if "Stockfish" in p_name else None for p_name in self.p_names], opening = game_openings[base_game_id + game_id], w_player_id = game_perspectives[base_game_id + game_id], invalid_retries = self.invalid_retries, format = self.game_format, include_idx = self.include_idx) for game_id in range(new_games)]
+                if write_out is not None:
+                    game_state.write_outcome(write_out)
                 else:
-                    game_states += [GameState(base_game_id + game_id, self.adjudicator, self.p_names, [random.choice(range(1350, 2850, 100)) if "Stockfish" in p_name else None for p_name in self.p_names], w_player_id = random.randint(0, 1), invalid_retries = self.invalid_retries, format = self.game_format, include_idx = self.include_idx) for game_id in range(new_games)]
+                    g, p, r = game_state.get_gpr()
+                    G, P, R = update_gpr(g, G, p, P, r, R, self.tokenize)
+                    game_order[game_state.game_id] = games_played
 
-                base_game_id += new_games
+                games_played += 1
+                if self.local_rank == 0:
+                    prog_bar.update(1)
+
+            game_states = active_game_states
+            new_games = min(self.eval_bsz - len(game_states), total_games - (games_played + len(game_states))) # Min(Bsz - active_games, total_games - (games_played + active_games))
+            if len(openings) > 0:
+                game_states += [GameState(base_game_id + game_id, self.adjudicator, self.p_names, [random.choice(range(1350, 2850, 100)) if "Stockfish" in p_name else None for p_name in self.p_names], opening = game_openings[base_game_id + game_id], w_player_id = game_perspectives[base_game_id + game_id], invalid_retries = self.invalid_retries, format = self.game_format, include_idx = self.include_idx) for game_id in range(new_games)]
+            else:
+                game_states += [GameState(base_game_id + game_id, self.adjudicator, self.p_names, [random.choice(range(1350, 2850, 100)) if "Stockfish" in p_name else None for p_name in self.p_names], w_player_id = random.randint(0, 1), invalid_retries = self.invalid_retries, format = self.game_format, include_idx = self.include_idx) for game_id in range(new_games)]
+
+            base_game_id += new_games
+
+        assert games_played == total_games
 
         if self.local_rank == 0:
             prog_bar.close()
 
-        print(f"Run {total_games} games: {self.p_names[0]} - {sum(p0_move_times) / len(p0_move_times)}s/Move, {sum(p0_times)}s Overall, {self.p_names[1]} - {sum(p1_move_times) / len(p1_move_times)}s/Move, {sum(p1_times)}s Overall.")
+        print(f"Run {total_games} games: " + 
+              "".join(
+                  [
+                      f"{self.p_names[player_id]} - {sum(player_move_times[player_id]) / len(player_move_times[player_id])}s/Move, {sum(player_times[player_id])}s Overall" 
+                      for player_id in range(2)
+                ]
+            )
+        )
 
         if self.local_rank == 0:
-            pd.DataFrame({"Bsz": p0_bszs, "Avg SLen": p0_aslen, "SLen Variance": p0_vslen, "Times": p0_times}).to_csv(f"./{self.p_names[0]}-time_settings.csv")
-            pd.DataFrame({"Bsz": p1_bszs, "Avg SLen": p1_aslen, "SLen Variance": p1_vslen,"Times": p1_times}).to_csv(f"./{self.p_names[1]}-time_settings.csv")
+            for player_id in range(2):
+                pd.DataFrame({"Bsz": player_bszs[player_id], "Avg SLen": player_aslen[player_id], "SLen Variance": player_vslen[player_id], "Times": player_times[player_id]}).to_csv(f"./{self.p_names[player_id]}-time_settings.csv")
 
         if write_out:
             write_out.close()
