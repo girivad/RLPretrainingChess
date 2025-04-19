@@ -49,7 +49,7 @@ beta2 = 0.95  # make a bit bigger because number of tokens per iter is small
 clip_eps = 0.04
 
 baseline = None
-group_size = 1
+group_size = 16
 clip_eps = 0.2
 self_play = False
 

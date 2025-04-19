@@ -8,9 +8,9 @@ model_dir = "../../model_vol/"
 
 out_dir = os.path.join(model_dir, pretrain_run_name, f"ckpt_{ckpt_num}")
 eval_interval = 500
-eval_iters = 512
+eval_iters = 128
 hifi_eval_interval = 2500
-hifi_eval_iters = 512
+hifi_eval_iters = 128
 ckpt_interval = 500
 # I'm not sure what's going on, but when log_interval == 100, the time per iter is inaccurate and much longer than it should be
 # when running on multiple GPUs. TODO: investigate
@@ -50,7 +50,7 @@ beta2 = 0.95  # make a bit bigger because number of tokens per iter is small
 clip_eps = 0.04
 
 baseline = "GRPO"
-group_size = 10
+group_size = 16
 use_opening_book = True
 clip_eps = 0.2
 self_play = False

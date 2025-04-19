@@ -50,7 +50,7 @@ beta2 = 0.95  # make a bit bigger because number of tokens per iter is small
 clip_eps = 0.04
 
 baseline = "GRPO"
-group_size = 10
+group_size = 16
 use_opening_book = True
 clip_eps = 0.2
 self_play = False
