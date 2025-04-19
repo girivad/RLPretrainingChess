@@ -147,14 +147,15 @@ class Arena(object):
         if self.local_rank == 0:
             prog_bar.close()
 
-        print(f"Run {total_games} games: " + 
-              "".join(
-                  [
-                      f"{self.p_names[player_id]} - {sum(player_move_times[player_id]) / len(player_move_times[player_id])}s/Move, {sum(player_times[player_id])}s Overall" 
-                      for player_id in range(2)
-                ]
+        if write_out and self.local_rank == 0:
+            print(f"Run {total_games} games: " + 
+                "".join(
+                    [
+                        f"{self.p_names[player_id]} - {sum(player_move_times[player_id]) / len(player_move_times[player_id])}s/Move, {sum(player_times[player_id])}s Overall" 
+                        for player_id in range(2)
+                    ]
+                )
             )
-        )
 
         if self.local_rank == 0:
             for player_id in range(2):
