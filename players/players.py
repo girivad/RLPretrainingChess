@@ -128,7 +128,7 @@ class GPTPlayer(object):
             games = red_games            
 
         game_ct = len(games)
-        padding_games = 2 ** ceil(log(game_ct, 2)) - len(games) # Pad batch size to the nearest power of 2.
+        padding_games = 2 ** ceil(log(game_ct, 2)) - game_ct # Pad batch size to the nearest power of 2.
 
         games = games + [self.tokenizer(";" * max_game_len, return_type = "torch", pgn = False).to(self.device) for _ in range(padding_games)]
         temperature = torch.tensor([min((game_state.retry_limit - game_state.retries)/(game_state.retry_limit) * 1 + 0.001, 0.5) if game_state.retry_limit != 0 else 1 for game_state in game_states] + [1] * padding_games).view(-1, 1).to(self.device)
@@ -136,7 +136,7 @@ class GPTPlayer(object):
         # if self.device == "cuda:0":
         #     print("Playing Moves on:", games, self.detokenizer(games, batch = True), "from start_pos:", start_pos, "Completed Mask:", completed_msk)
         idx_moves, new_start_pos = self.model.module.generate_moves(games, device = self.device, max_move_size = self.max_move_size, overwrite_spaces = True, temperature = temperature, top_k = self.k, space_token = int(self.tokenizer(" ")[0]), eos_token = int(self.tokenizer(";")[0]), start_pos = start_pos, kv_cache = sb, completed_msk = completed_msk)
-        idx_moves = idx_moves[:-padding_games, :]
+        idx_moves = idx_moves[:game_ct]
         str_moves = self.detokenizer(idx_moves, batch = True)
         # if self.device == "cuda:0":
         #     print(str_moves)
