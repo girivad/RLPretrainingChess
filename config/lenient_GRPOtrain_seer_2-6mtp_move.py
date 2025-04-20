@@ -24,7 +24,7 @@ wandb_run_name = run_name
 
 # dataset
 gradient_accumulation_steps = 2
-batch_size = 128
+batch_size = 64
 block_size = 1023  # context of up to 1023 tokens (because dataset block size is 1024)
 
 # tokenizer
@@ -50,7 +50,7 @@ beta2 = 0.95  # make a bit bigger because number of tokens per iter is small
 clip_eps = 0.04
 
 baseline = "GRPO"
-group_size = 16
+group_size = 8
 use_opening_book = True
 clip_eps = 0.2
 self_play = False
