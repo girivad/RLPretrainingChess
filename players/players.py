@@ -5,6 +5,7 @@ from typing import List
 from tokenizer.scripts.tokenizer import load_tokenizer
 from players.game_utils import GameState
 import asyncio
+from math import log, ceil
 
 # Adapted from https://github.com/adamkarvonen/chess_gpt_eval/blob/master/main.py
 
@@ -109,12 +110,14 @@ class GPTPlayer(object):
         red_game_states, red_games = [], []
 
         # Decide games beyond context length
+        max_game_len = 0
         for game_state, game in zip(game_states, games):
             if game.size(0) >= self.model.module.config.block_size:
                 game_state.decide()
             else:
                 red_game_states.append(game_state)
                 red_games.append(game)
+                max_game_len = max(max_game_len, len(game))
         
         if len(red_game_states) == 0:
             return None # Returned start pos doesn't matter, as it is only considered in Static Batching, which needs to start a new batch anyway.
@@ -124,15 +127,20 @@ class GPTPlayer(object):
             game_states = red_game_states
             games = red_games            
 
-        temperature = torch.tensor([min((game_state.retry_limit - game_state.retries)/(game_state.retry_limit) * 1 + 0.001, 0.5) if game_state.retry_limit != 0 else 1 for game_state in game_states]).view(-1, 1).to(self.device)
-        completed_msk = torch.tensor([game_state.is_complete() for game_state in game_states], device = self.device)
+        game_ct = len(games)
+        padding_games = 2 ** ceil(log(game_ct, 2)) - len(games) # Pad batch size to the nearest power of 2.
+
+        games = games + [self.tokenizer(";" * max_game_len, return_type = "torch", pgn = False).to(self.device) for _ in range(padding_games)]
+        temperature = torch.tensor([min((game_state.retry_limit - game_state.retries)/(game_state.retry_limit) * 1 + 0.001, 0.5) if game_state.retry_limit != 0 else 1 for game_state in game_states] + [1] * padding_games).view(-1, 1).to(self.device)
+        completed_msk = torch.tensor([game_state.is_complete() for game_state in game_states] + [True] * padding_games, device = self.device)
         # if self.device == "cuda:0":
         #     print("Playing Moves on:", games, self.detokenizer(games, batch = True), "from start_pos:", start_pos, "Completed Mask:", completed_msk)
         idx_moves, new_start_pos = self.model.module.generate_moves(games, device = self.device, max_move_size = self.max_move_size, overwrite_spaces = True, temperature = temperature, top_k = self.k, space_token = int(self.tokenizer(" ")[0]), eos_token = int(self.tokenizer(";")[0]), start_pos = start_pos, kv_cache = sb, completed_msk = completed_msk)
+        idx_moves = idx_moves[:-padding_games, :]
         str_moves = self.detokenizer(idx_moves, batch = True)
         # if self.device == "cuda:0":
         #     print(str_moves)
-        moves = [move.split(" ")[0] for move in str_moves]
+        moves = [move.split(" ")[0] if not completed_msk[game_idx] else ";" for game_idx, move in enumerate(str_moves)]
         
         all_moves_success = True
         for game_state, move in zip(game_states, moves):
