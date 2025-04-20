@@ -307,7 +307,7 @@ def sample_games(pi_theta, total_games, bsz, rank, tok_type = "move", tokenizer_
     synthetic_games = []
     if sf_rating_games == "fast" and not self_play:
         sf_ratings = range(1350, 2850, 100)
-        synthetic_games = sample_sf_games_fast(sf_ratings, games_per_pair = total_games // len(sf_ratings))
+        synthetic_games = sample_sf_games_fast(sf_ratings, games_per_pair = max(total_games // len(sf_ratings), 400))
 
     p0 = GPTPlayer(pi_theta, f"cuda:{rank}", max_move_size = MMS[tok_type], tok_type = tok_type, tokenizer_path = tokenizer_path, game_format = game_format)
 
