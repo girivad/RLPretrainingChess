@@ -370,11 +370,14 @@ try:
                     P = P.to(device)
                     R = R.to(device)
 
+                    loss_dict["reward"] = R.mean().item()
+
                     if baseline == "GRPO":
                         mean_r = torch.mean(R.view(-1, group_size), dim = 1)
                         std_r = torch.std(R.view(-1, group_size), dim = 1)
                         mean_r = mean_r.repeat_interleave(group_size)
                         std_r = std_r.repeat_interleave(group_size)
+                        loss_dict["std_grp_reward"] = std_r.mean().item()
 
                         R = torch.where(std_r != 0, (R - mean_r) / std_r, R)
                         assert not torch.any(R.isnan()), R            
@@ -397,15 +400,19 @@ try:
                     pi_r_prbs = torch.gather(pi_r, 2, G[:, 1:].unsqueeze(2)).squeeze(2) # B x (S - 1)
                 
                 prb_ratio = pi_t_prbs / pi_t_prbs.detach().clone() # B x (S - 1)
+                loss_dict["prb_ratio"] = prb_ratio.mean().item()
                 clipped_ratio = torch.clip(prb_ratio, 1 - clip_eps, 1 + clip_eps) # B x (S - 1)
 
                 assert torch.all(pi_t_prbs > 0)
                 assert torch.all((P != 0).sum(dim = 1) > 0)
 
+                kld = (pi_r_prbs / pi_t_prbs - torch.log(pi_r_prbs) + torch.log(pi_t_prbs) - 1) * (P != 0) # B x (S - 1)
+                loss_dict["kld"] = kld.sum().item() / (P != 0).sum().item()
+
                 loss = torch.mean(
                     torch.sum(
                         torch.where(prb_ratio < clipped_ratio, prb_ratio, clipped_ratio) * P * R.view(-1, 1) - 
-                        beta * (pi_r_prbs / pi_t_prbs - torch.log(pi_r_prbs) + torch.log(pi_t_prbs) - 1) * (P != 0),
+                        beta * kld,
                         dim = 1
                     ) / (P != 0).sum(dim = 1)
                 )
@@ -438,9 +445,9 @@ try:
             if local_iter_num >= 5: # let the training loop settle a bit
                 mfu = raw_model.estimate_mfu(batch_size * gradient_accumulation_steps, dt)
                 running_mfu = mfu if running_mfu == -1.0 else 0.9*running_mfu + 0.1*mfu
-            print(f"iter {iter_num}: loss {lossf:.4f}, time {dt*1000:.2f}ms, mfu {running_mfu*100:.2f}%")
+            print(f"iter {iter_num}: loss {lossf:.8f}, time {dt*1000:.2f}ms, mfu {running_mfu*100:.2f}%")
             if wandb_log:
-                wandb.log(dict(**{
+                wandb.log(dict(loss_dict, **{
                     "iter": iter_num,
                     "train/loss": lossf,
                     "lr": lr,

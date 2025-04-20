@@ -144,7 +144,7 @@ class GPTPlayer(object):
         
         all_moves_success = True
         for game_state, move in zip(game_states, moves):
-            if move[0] == ";":
+            if len(move) > 0 and move[0] == ";":
                 move_success = game_state.resign()
             else:
                 move_success = game_state.register_move(move.split(";")[0], parse_move = self.input_type)
