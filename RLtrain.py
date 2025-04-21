@@ -409,7 +409,7 @@ try:
                 kld = (pi_r_prbs / pi_t_prbs - torch.log(pi_r_prbs) + torch.log(pi_t_prbs) - 1) * (P != 0) # B x (S - 1)
                 loss_dict["kld"] = kld.sum().item() / (P != 0).sum().item()
 
-                loss = torch.mean(
+                loss = -1 * torch.mean(
                     torch.sum(
                         torch.where(prb_ratio < clipped_ratio, prb_ratio, clipped_ratio) * P * R.view(-1, 1) - 
                         beta * kld,
