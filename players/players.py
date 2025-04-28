@@ -106,7 +106,7 @@ class GPTPlayer(object):
         if all((game_state.is_complete() for game_state in game_states)):
             return None
 
-        games = [self.tokenizer(game.state, return_type = "torch", pgn = False).to(self.device) for game in game_states]
+        games = [self.tokenizer(game.state, return_type = "torch", pgn = False) for game in game_states]
         red_game_states, red_games = [], []
 
         # Decide games beyond context length
@@ -117,7 +117,7 @@ class GPTPlayer(object):
             else:
                 red_game_states.append(game_state)
                 red_games.append(game)
-                max_game_len = max(max_game_len, len(game))
+                max_game_len = max(max_game_len, game.size(0))
         
         if len(red_game_states) == 0:
             return None # Returned start pos doesn't matter, as it is only considered in Static Batching, which needs to start a new batch anyway.
@@ -130,7 +130,7 @@ class GPTPlayer(object):
         game_ct = len(games)
         padding_games = 2 ** ceil(log(game_ct, 2)) - game_ct # Pad batch size to the nearest power of 2.
 
-        games = games + [self.tokenizer(";" * max_game_len, return_type = "torch", pgn = False).to(self.device) for _ in range(padding_games)]
+        games = games + [self.tokenizer(";" * max_game_len, return_type = "torch", pgn = False) for _ in range(padding_games)]
         temperature = torch.tensor([min((game_state.retry_limit - game_state.retries)/(game_state.retry_limit) * 1 + 0.001, 0.5) if game_state.retry_limit != 0 else 1 for game_state in game_states] + [1] * padding_games).view(-1, 1).to(self.device)
         completed_msk = torch.tensor([game_state.is_complete() for game_state in game_states] + [True] * padding_games, device = self.device)
         # if self.device == "cuda:0":

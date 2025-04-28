@@ -203,7 +203,7 @@ class Arena(object):
         sf_player = self.player0 if sf_player_idx == 0 else self.player1
         gpt_player = self.player0 if sf_player_idx == 1 else self.player1
 
-        for batch in range(math.ceil(total_games / self.eval_bsz)):
+        while games_played < total_games:
             num_games = min(self.eval_bsz, total_games - games_played)
             if len(openings) > 0:
                 game_states = [GameState(idx, self.adjudicator, self.p_names, [random.choice(range(1350, 2850, 100)) if "Stockfish" in p_name else None for p_name in self.p_names], opening = game_openings[idx], w_player_id = game_perspectives[idx], invalid_retries = self.invalid_retries, format = self.game_format, include_idx = self.include_idx) for idx in range(games_played, games_played + num_games)]
@@ -227,6 +227,7 @@ class Arena(object):
             
             # Process all completed games.
             for game_state in game_states:
+                assert game_state.is_complete()
                 if write_out is not None:
                     game_state.write_outcome(write_out)
                 else:
@@ -249,7 +250,6 @@ class Arena(object):
             P = P
             R = R
             return G, P, R
-
 
     def close(self):
         self.player0.close()
