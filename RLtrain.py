@@ -297,6 +297,11 @@ if sb:
     pi_theta.module.create_kv_cache(bsz=batch_size, device = device)
 
 try:
+    # if master_process:
+    #     torch.cuda.memory._record_memory_history(
+    #     max_entries=1000000
+    #     )
+    
     while True:
         # determine and set the learning rate for this iteration
         lr = learning_rate
@@ -315,6 +320,9 @@ try:
                 if eval_only and iter_num == 0:
                     destroy_process_group()
                     exit(0)
+
+            # if master_process:
+            #     torch.cuda.memory._dump_snapshot(f"Eval-{iter_num}.pickle")
 
             if master_process:
                 print(f"step {iter_num}: Elo rating {lw_bd:.4f} < {elo:.4f} < {up_bd:.4f}")
@@ -382,6 +390,9 @@ try:
                         R = torch.where(std_r != 0, (R - mean_r) / std_r, R)
                         assert not torch.any(R.isnan()), R            
 
+                        mean_r = None
+                        std_r = None
+
             if ddp:
                 # in DDP training we only need to sync gradients at the last micro step.
                 # the official way to do this is with model.no_sync() context manager, but
@@ -389,13 +400,13 @@ try:
                 # looking at the source of that context manager, it just toggles this variable
                 pi_theta.require_backward_grad_sync = (micro_step == gradient_accumulation_steps - 1)
             with ctx:
-                pi_t, _ = pi_theta(G[:, :-1], evaluate = True, batch_inf = True) # B x (S - 1) x V
+                pi_t, _ = pi_theta(G[:, :-1], batch_inf = True) # B x (S - 1) x V
                 pi_t = smooth(F.softmax(pi_t, dim = -1))
                 # Index Select Workaround: https://github.com/pytorch/pytorch/issues/30574
                 pi_t_prbs = torch.gather(pi_t, 2, G[:, 1:].unsqueeze(2)).squeeze(2) # B x (S - 1)
 
                 with torch.no_grad():
-                    pi_r, _ = pi_ref(G[:, :-1], evaluate = True, batch_inf = True)
+                    pi_r, _ = pi_ref(G[:, :-1], batch_inf = True)
                     pi_r = smooth(F.softmax(pi_r, dim = -1))
                     pi_r_prbs = torch.gather(pi_r, 2, G[:, 1:].unsqueeze(2)).squeeze(2) # B x (S - 1)
                 
@@ -432,6 +443,8 @@ try:
         scaler.update()
         # flush the gradients as soon as we can, no need for this memory anymore
         optimizer.zero_grad(set_to_none=True)
+        # if master_process:
+        #     torch.cuda.memory._dump_snapshot(f"Train-{iter_num}.pickle")
 
         # timing and logging
         t1 = time.time()
@@ -468,6 +481,7 @@ except Exception as err:
 
 if master_process:
     RL_prg_bar.close()
+    # torch.cuda.memory._record_memory_history(enabled=None)
 
 if ddp:
     destroy_process_group()

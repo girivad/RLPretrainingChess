@@ -369,7 +369,7 @@ class GPT(nn.Module):
         x = emb
 
         for block in self.transformer.h:
-            x = block(x, start_pos = start_pos, kv_cache = kv_cache)
+            x = block(x, start_pos = start_pos, kv_cache = kv_cache and inference and not batch_inf)
             assert len(x.size()) == 3, (x.size())
         x = self.transformer.ln_f(x)
         assert len(x.size()) == 3, (x.size())
@@ -590,6 +590,10 @@ class GPT(nn.Module):
 
         sp_msk = games_tensor == space_token
 
+        if completed_msk is not None:
+            assert not torch.any(torch.any(sp_msk, dim = 1) & completed_msk)
+            assert torch.all(torch.all(games_tensor == eos_token, dim = 1) | ~completed_msk)
+
         min_prompt_len = None
         for game_idx in range(games_tensor.size(0)):
             mpl = -1
@@ -597,15 +601,15 @@ class GPT(nn.Module):
                 if sp_msk[game_idx, tok]:
                     mpl = tok
                     break
-            if mpl == -1:
+            if mpl < 1:
                 continue
             
             if min_prompt_len is None:
                 min_prompt_len = mpl
             else:
-                min_prompt_len = max(min(min_prompt_len, mpl), 1)
+                min_prompt_len = min(min_prompt_len, mpl)
 
-        min_prompt_len = min_prompt_len
+        min_prompt_len = min_prompt_len or 1
 
         # if device == "cuda:0":
         #     print("mPL:", min_prompt_len, "MPL:", max_prompt_len, "MT:", max_token)
