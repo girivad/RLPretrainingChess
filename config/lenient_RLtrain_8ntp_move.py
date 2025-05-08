@@ -24,7 +24,7 @@ wandb_run_name = run_name
 
 # dataset
 gradient_accumulation_steps = 2
-batch_size = 128
+batch_size = 64
 block_size = 1023  # context of up to 1023 tokens (because dataset block size is 1024)
 
 # tokenizer
@@ -61,3 +61,4 @@ compile = True
 invalid_retries = 5
 sf_workers = 14
 sb = False
+eval_only = False
