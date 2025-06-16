@@ -10,7 +10,7 @@ out_dir = os.path.join(model_dir, pretrain_run_name, f"ckpt_{ckpt_num}")
 eval_interval = 125
 eval_iters = 256
 hifi_eval_interval = 250
-hifi_eval_iters = 256
+hifi_eval_iters = 512
 ckpt_interval = 250
 log_interval = 25  # don't print too too often
 
@@ -22,7 +22,7 @@ wandb_run_name = run_name
 
 # dataset
 gradient_accumulation_steps = 2
-batch_size = 128
+batch_size = 64
 block_size = 1023  # context of up to 1023 tokens (because dataset block size is 1024)
 
 # tokenizer
@@ -58,6 +58,6 @@ train_up_elo = 2050
 warmup_iters = 0
 compile = True
 
-invalid_retries = 1
+invalid_retries = 5
 sf_workers = 14
 sb = False
