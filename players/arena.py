@@ -54,7 +54,7 @@ class Arena(object):
         self.game_format = game_format
         self.include_idx = include_idx
 
-    def run_games(self, total_games: int, write_out = None, openings = [], group_size = 1):
+    def run_games(self, total_games: int, write_out = None, openings = [], group_size = 1, lw_elo: int = 1350, up_elo: int = 2750):
         if write_out:
             write_out = open(write_out + str(self.local_rank), "w")
             for game in self.init_games:
@@ -83,9 +83,9 @@ class Arena(object):
             game_perspectives = sum([[perspective] * group_size for perspective in game_perspectives], [])
             # print("Spread Perspectives:", len(game_perspectives))
 
-            game_states = [GameState(idx, self.adjudicator, self.p_names, [random.choice(range(1350, 2850, 100)) if "Stockfish" in p_name else None for p_name in self.p_names], opening = game_openings[idx], w_player_id = game_perspectives[idx], invalid_retries = self.invalid_retries, format = self.game_format, include_idx = self.include_idx) for idx in range(self.eval_bsz)]
+            game_states = [GameState(idx, self.adjudicator, self.p_names, [random.choice(range(lw_elo, up_elo + 1, 100)) if "Stockfish" in p_name else None for p_name in self.p_names], opening = game_openings[idx], w_player_id = game_perspectives[idx], invalid_retries = self.invalid_retries, format = self.game_format, include_idx = self.include_idx) for idx in range(self.eval_bsz)]
         else:
-            game_states = [GameState(idx, self.adjudicator, self.p_names, [random.choice(range(1350, 2850, 100)) if "Stockfish" in p_name else None for p_name in self.p_names], opening = "", w_player_id = random.randint(0, 1), invalid_retries = self.invalid_retries, format = self.game_format, include_idx = self.include_idx) for idx in range(self.eval_bsz)]
+            game_states = [GameState(idx, self.adjudicator, self.p_names, [random.choice(range(lw_elo, up_elo + 1, 100)) if "Stockfish" in p_name else None for p_name in self.p_names], opening = "", w_player_id = random.randint(0, 1), invalid_retries = self.invalid_retries, format = self.game_format, include_idx = self.include_idx) for idx in range(self.eval_bsz)]
 
         base_game_id = self.eval_bsz
 
@@ -136,9 +136,9 @@ class Arena(object):
 
             new_games = min(self.eval_bsz - len(game_states), total_games - (games_played + len(game_states))) # Min(Bsz - active_games, total_games - (games_played + active_games))
             if len(openings) > 0:
-                game_states += [GameState(base_game_id + game_id, self.adjudicator, self.p_names, [random.choice(range(1350, 2850, 100)) if "Stockfish" in p_name else None for p_name in self.p_names], opening = game_openings[base_game_id + game_id], w_player_id = game_perspectives[base_game_id + game_id], invalid_retries = self.invalid_retries, format = self.game_format, include_idx = self.include_idx) for game_id in range(new_games)]
+                game_states += [GameState(base_game_id + game_id, self.adjudicator, self.p_names, [random.choice(range(lw_elo, up_elo + 1, 100)) if "Stockfish" in p_name else None for p_name in self.p_names], opening = game_openings[base_game_id + game_id], w_player_id = game_perspectives[base_game_id + game_id], invalid_retries = self.invalid_retries, format = self.game_format, include_idx = self.include_idx) for game_id in range(new_games)]
             else:
-                game_states += [GameState(base_game_id + game_id, self.adjudicator, self.p_names, [random.choice(range(1350, 2850, 100)) if "Stockfish" in p_name else None for p_name in self.p_names], w_player_id = random.randint(0, 1), invalid_retries = self.invalid_retries, format = self.game_format, include_idx = self.include_idx) for game_id in range(new_games)]
+                game_states += [GameState(base_game_id + game_id, self.adjudicator, self.p_names, [random.choice(range(lw_elo, up_elo + 1, 100)) if "Stockfish" in p_name else None for p_name in self.p_names], w_player_id = random.randint(0, 1), invalid_retries = self.invalid_retries, format = self.game_format, include_idx = self.include_idx) for game_id in range(new_games)]
 
             base_game_id += new_games
 
@@ -171,7 +171,7 @@ class Arena(object):
             R = R[game_order]
             return G, P, R
 
-    def run_games_sb(self, total_games: int, write_out = None, openings = [], group_size = 1):
+    def run_games_sb(self, total_games: int, write_out = None, openings = [], group_size = 1, lw_elo: int = 1350, up_elo: int = 2750):
         if write_out:
             write_out = open(write_out + str(self.local_rank), "w")
             for game in self.init_games:
@@ -206,9 +206,9 @@ class Arena(object):
         while games_played < total_games:
             num_games = min(self.eval_bsz, total_games - games_played)
             if len(openings) > 0:
-                game_states = [GameState(idx, self.adjudicator, self.p_names, [random.choice(range(1350, 2850, 100)) if "Stockfish" in p_name else None for p_name in self.p_names], opening = game_openings[idx], w_player_id = game_perspectives[idx], invalid_retries = self.invalid_retries, format = self.game_format, include_idx = self.include_idx) for idx in range(games_played, games_played + num_games)]
+                game_states = [GameState(idx, self.adjudicator, self.p_names, [random.choice(range(lw_elo, up_elo + 1, 100)) if "Stockfish" in p_name else None for p_name in self.p_names], opening = game_openings[idx], w_player_id = game_perspectives[idx], invalid_retries = self.invalid_retries, format = self.game_format, include_idx = self.include_idx) for idx in range(games_played, games_played + num_games)]
             else:
-                game_states = [GameState(idx, self.adjudicator, self.p_names, [random.choice(range(1350, 2850, 100)) if "Stockfish" in p_name else None for p_name in self.p_names], opening = "", w_player_id = random.randint(0, 1), invalid_retries = self.invalid_retries, format = self.game_format, include_idx = self.include_idx) for idx in range(games_played, games_played + num_games)]
+                game_states = [GameState(idx, self.adjudicator, self.p_names, [random.choice(range(lw_elo, up_elo + 1, 100)) if "Stockfish" in p_name else None for p_name in self.p_names], opening = "", w_player_id = random.randint(0, 1), invalid_retries = self.invalid_retries, format = self.game_format, include_idx = self.include_idx) for idx in range(games_played, games_played + num_games)]
 
             all_games_complete = False
 
@@ -303,10 +303,10 @@ def sample_sf_games_fast(ratings, games_per_pair = 20):
 
     return [GameState.init_terminal_game(outcome, 0, ["Stockfish", "Stockfish"], [w_elo, b_elo]) for w_elo, b_elo, outcome in zip(elos[:, 0], elos[:, 1], outcomes)]
 
-def sample_games(pi_theta, total_games, bsz, rank, tok_type = "move", tokenizer_path = "./tokenizer/tokenizers/move_token.pkl", self_play = False, write_out = None, sf_rating_games = "fast", sf_time = 0.1, use_opening_book = False, group_size = 1, invalid_retries = 0, game_format = "uci", include_idx = False, sf_workers = 14, sb = False):
+def sample_games(pi_theta, total_games, bsz, rank, tok_type = "move", tokenizer_path = "./tokenizer/tokenizers/move_token.pkl", self_play = False, write_out = None, sf_rating_games = "fast", sf_time = 0.1, use_opening_book = False, group_size = 1, invalid_retries = 0, game_format = "uci", include_idx = False, sf_workers = 14, sb = False, lw_elo: int = 1350, up_elo: int = 2750):
     synthetic_games = []
     if sf_rating_games == "fast" and not self_play:
-        sf_ratings = range(1350, 2850, 100)
+        sf_ratings = range(lw_elo, up_elo + 1, 100)
         synthetic_games = sample_sf_games_fast(sf_ratings, games_per_pair = max(total_games // len(sf_ratings), 400))
 
     p0 = GPTPlayer(pi_theta, f"cuda:{rank}", max_move_size = MMS[tok_type], tok_type = tok_type, tokenizer_path = tokenizer_path, game_format = game_format)
@@ -328,14 +328,14 @@ def sample_games(pi_theta, total_games, bsz, rank, tok_type = "move", tokenizer_
 
     if write_out:
         if not sb:
-            arena.run_games(total_games, write_out, openings = openings)
+            arena.run_games(total_games, write_out, openings = openings, lw_elo = lw_elo, up_elo = up_elo)
         else:
-            arena.run_games_sb(total_games, write_out, openings = openings)
+            arena.run_games_sb(total_games, write_out, openings = openings, lw_elo = lw_elo, up_elo = up_elo)
     else:
         if not sb:
-            G, P, R = arena.run_games(total_games, group_size = group_size, openings = openings)
+            G, P, R = arena.run_games(total_games, group_size = group_size, openings = openings, lw_elo = lw_elo, up_elo = up_elo)
         else:
-            G, P, R = arena.run_games_sb(total_games, group_size = group_size, openings = openings)
+            G, P, R = arena.run_games_sb(total_games, group_size = group_size, openings = openings, lw_elo = lw_elo, up_elo = up_elo)
 
         G = G.type(torch.long)
 
@@ -377,8 +377,8 @@ def calc_elo(pgn_file):
     
     return elo, lw_bd, up_bd
 
-def estimate_elo(pi_theta, eval_bsz, eval_games, rank, write_out, wait, tok_type = "move", tokenizer_path = "./tokenizer/tokenizers/move_token.pkl", world_size = None, use_opening_book = True, invalid_retries = 0, game_format = "uci", include_idx = False, sf_workers = 14, sb = False):
-    sample_games(pi_theta, eval_games, eval_bsz, rank, tok_type, tokenizer_path, write_out = write_out, use_opening_book = use_opening_book, invalid_retries = invalid_retries, game_format = game_format, include_idx = include_idx, sf_workers = sf_workers, sb = sb)
+def estimate_elo(pi_theta, eval_bsz, eval_games, rank, write_out, wait, tok_type = "move", tokenizer_path = "./tokenizer/tokenizers/move_token.pkl", world_size = None, use_opening_book = True, invalid_retries = 0, game_format = "uci", include_idx = False, sf_workers = 14, sb = False, lw_elo = 1350, up_elo = 2750):
+    sample_games(pi_theta, eval_games, eval_bsz, rank, tok_type, tokenizer_path, write_out = write_out, use_opening_book = use_opening_book, invalid_retries = invalid_retries, game_format = game_format, include_idx = include_idx, sf_workers = sf_workers, sb = sb, lw_elo = lw_elo, up_elo = up_elo)
     wait()
     if rank == 0:
         assert world_size is not None

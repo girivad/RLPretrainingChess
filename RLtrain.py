@@ -77,7 +77,12 @@ clip_eps = 0.2
 use_opening_book = True
 group_size = 25
 self_play = False
+train_lw_elo = 1350
+train_up_elo = 2750
+
 # evaluation
+eval_lw_elo = 1350
+eval_up_elo = 2750
 invalid_retries = 5
 game_format = "uci"
 include_idx = False
@@ -314,7 +319,8 @@ try:
                 elo, lw_bd, up_bd = estimate_elo(
                     pi_theta, batch_size, eval_iters if iter_num % hifi_eval_interval != 0 else hifi_eval_iters, ddp_local_rank, f"./pgn/{iter_num}_", 
                     wait, tok_type = tok_type, tokenizer_path = tokenizer_path, world_size = ddp_world_size, use_opening_book = use_opening_book,
-                    invalid_retries = invalid_retries, game_format = game_format, include_idx = include_idx, sf_workers = sf_workers, sb = sb
+                    invalid_retries = invalid_retries, game_format = game_format, include_idx = include_idx, sf_workers = sf_workers, sb = sb,
+                    lw_elo = eval_lw_elo, up_elo = eval_up_elo
                 )
 
                 if eval_only and iter_num == 0:
@@ -371,7 +377,8 @@ try:
                         use_opening_book = use_opening_book,
                         group_size = group_size if baseline == "GRPO" else 1,
                         sf_rating_games = None, invalid_retries = invalid_retries,
-                        game_format = game_format, include_idx = include_idx, sf_workers = sf_workers, sb = sb
+                        game_format = game_format, include_idx = include_idx, sf_workers = sf_workers, sb = sb,
+                        lw_elo = train_lw_elo, up_elo = train_up_elo
                     )
                     P = P[:, 1:] # B x (S - 1)
                     G = G.to(device)

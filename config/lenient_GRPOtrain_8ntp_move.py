@@ -12,8 +12,6 @@ eval_iters = 256
 hifi_eval_interval = 250
 hifi_eval_iters = 256
 ckpt_interval = 250
-# I'm not sure what's going on, but when log_interval == 100, the time per iter is inaccurate and much longer than it should be
-# when running on multiple GPUs. TODO: investigate
 log_interval = 25  # don't print too too often
 
 always_save_checkpoint = True
@@ -54,6 +52,8 @@ group_size = 16
 use_opening_book = True
 clip_eps = 0.2
 self_play = False
+train_lw_elo = 1750
+train_up_elo = 2050
 
 warmup_iters = 0
 compile = True
