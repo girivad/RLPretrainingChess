@@ -74,16 +74,19 @@ class Arena(object):
         if len(openings) > 0:
             # print("Total Games:", total_games)
             # print("Openings:", len(openings))
-            game_openings = random.sample(openings, k = total_games // group_size)
+            groups = total_games // group_size
+            game_openings = random.sample(openings, k = groups)
             # print("Selected Openings:", len(game_openings))
             game_openings = sum([[opening] * group_size for opening in game_openings], [])
             # print("Spread Openings:", len(game_openings))
-            game_perspectives = random.choices([0, 1], k = total_games // group_size)
+            game_perspectives = random.choices([0, 1], k = groups)
             # print("Selected Perspectives:", len(game_perspectives))
             game_perspectives = sum([[perspective] * group_size for perspective in game_perspectives], [])
             # print("Spread Perspectives:", len(game_perspectives))
+            opponent_elos = random.choices(range(lw_elo, up_elo + 1, 100), k = groups)
+            opponent_elos = sum([[elo] * group_size for elo in opponent_elos], [])
 
-            game_states = [GameState(idx, self.adjudicator, self.p_names, [random.choice(range(lw_elo, up_elo + 1, 100)) if "Stockfish" in p_name else None for p_name in self.p_names], opening = game_openings[idx], w_player_id = game_perspectives[idx], invalid_retries = self.invalid_retries, format = self.game_format, include_idx = self.include_idx) for idx in range(self.eval_bsz)]
+            game_states = [GameState(idx, self.adjudicator, self.p_names, [opponent_elos[idx] if "Stockfish" in p_name else None for p_name in self.p_names], opening = game_openings[idx], w_player_id = game_perspectives[idx], invalid_retries = self.invalid_retries, format = self.game_format, include_idx = self.include_idx) for idx in range(self.eval_bsz)]
         else:
             game_states = [GameState(idx, self.adjudicator, self.p_names, [random.choice(range(lw_elo, up_elo + 1, 100)) if "Stockfish" in p_name else None for p_name in self.p_names], opening = "", w_player_id = random.randint(0, 1), invalid_retries = self.invalid_retries, format = self.game_format, include_idx = self.include_idx) for idx in range(self.eval_bsz)]
 
@@ -136,7 +139,7 @@ class Arena(object):
 
             new_games = min(self.eval_bsz - len(game_states), total_games - (games_played + len(game_states))) # Min(Bsz - active_games, total_games - (games_played + active_games))
             if len(openings) > 0:
-                game_states += [GameState(base_game_id + game_id, self.adjudicator, self.p_names, [random.choice(range(lw_elo, up_elo + 1, 100)) if "Stockfish" in p_name else None for p_name in self.p_names], opening = game_openings[base_game_id + game_id], w_player_id = game_perspectives[base_game_id + game_id], invalid_retries = self.invalid_retries, format = self.game_format, include_idx = self.include_idx) for game_id in range(new_games)]
+                game_states += [GameState(base_game_id + game_id, self.adjudicator, self.p_names, [opponent_elos[base_game_id + game_id] if "Stockfish" in p_name else None for p_name in self.p_names], opening = game_openings[base_game_id + game_id], w_player_id = game_perspectives[base_game_id + game_id], invalid_retries = self.invalid_retries, format = self.game_format, include_idx = self.include_idx) for game_id in range(new_games)]
             else:
                 game_states += [GameState(base_game_id + game_id, self.adjudicator, self.p_names, [random.choice(range(lw_elo, up_elo + 1, 100)) if "Stockfish" in p_name else None for p_name in self.p_names], w_player_id = random.randint(0, 1), invalid_retries = self.invalid_retries, format = self.game_format, include_idx = self.include_idx) for game_id in range(new_games)]
 
