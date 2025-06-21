@@ -42,7 +42,7 @@ vocab_size = 1970
 aux_seer_loss = False
 
 learning_rate = 1e-6
-max_iters = 10
+max_iters = 1000
 min_lr = 1e-6  # no lr decay
 beta2 = 0.95  # make a bit bigger because number of tokens per iter is small
 clip_eps = 0.04
