@@ -52,8 +52,8 @@ group_size = 16
 use_opening_book = True
 clip_eps = 0.2
 self_play = False
-train_lw_elo = 1750
-train_up_elo = 2050
+train_lw_elo = 1600
+train_up_elo = 1700
 
 warmup_iters = 0
 compile = True
