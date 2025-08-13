@@ -40,7 +40,7 @@ vocab_size = 1970
 
 # aux losses
 aux_seer_loss = False
-
+beta = 0.04
 learning_rate = 1e-6
 max_iters = 1000
 min_lr = 1e-6  # no lr decay
