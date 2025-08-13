@@ -44,17 +44,22 @@ vocab_size = 1970
 aux_seer_loss = False
 
 learning_rate = 1e-6
-max_iters = 10000
+max_iters = 1000
 min_lr = 1e-6  # no lr decay
 beta2 = 0.95  # make a bit bigger because number of tokens per iter is small
 clip_eps = 0.04
 
 baseline = "GRPO"
-group_size = 25
+group_size = 16
+use_opening_book = True
 clip_eps = 0.2
 self_play = False
+train_lw_elo = 1650
+train_up_elo = 1950
 
 warmup_iters = 0
 compile = True
 
 invalid_retries = 5
+sf_workers = 14
+sb = False
