@@ -150,6 +150,8 @@ ctx = nullcontext() if device_type == 'cpu' else torch.amp.autocast(device_type=
 model_args = dict(n_slayer=n_slayer, n_layer=n_layer, n_head=n_head, n_embd=n_embd, block_size=block_size,
                   bias=bias, vocab_size=None, dropout=dropout) # start with model_args from command line
 
+assert batch_size % group_size == 0, f"Batch Size {batch_size} should have been divisble by Group Size ${group_size}."
+
 print(f"Beginning training from {out_dir}")
 # resume training from a checkpoint.
 ckpt_path = os.path.join(out_dir, f'ckpt.pt')

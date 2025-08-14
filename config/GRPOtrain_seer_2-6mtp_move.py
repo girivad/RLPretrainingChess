@@ -24,7 +24,7 @@ wandb_run_name = run_name
 
 # dataset
 gradient_accumulation_steps = 2
-batch_size = 50
+batch_size = 64
 block_size = 1023  # context of up to 1023 tokens (because dataset block size is 1024)
 
 # tokenizer
@@ -43,6 +43,7 @@ vocab_size = 1970
 # aux losses
 aux_seer_loss = False
 
+beta = 0.04
 learning_rate = 1e-6
 max_iters = 1000
 min_lr = 1e-6  # no lr decay
