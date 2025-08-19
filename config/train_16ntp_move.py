@@ -6,7 +6,7 @@ model_dir = "../../model_vol"
 data_dir = "../../model_vol/data_dir/pretrain"
 
 timestamp = datetime.now(ZoneInfo("America/Los_Angeles"))
-run_name = "8ntp_lichess " + str(timestamp)
+run_name = "16ntp_lichess " + str(timestamp)
 
 out_dir = os.path.join(model_dir, run_name)
 eval_interval = 4000
@@ -29,7 +29,7 @@ block_size = 320  # context of up to 1023 tokens (because dataset block size is 
 
 # baby GPT model :)
 n_slayer = 0
-n_layer = 8
+n_layer = 16
 n_head = 8
 n_embd = 512
 dropout = 0.0 # for pretraining 0 is good, for finetuning try 0.1+
