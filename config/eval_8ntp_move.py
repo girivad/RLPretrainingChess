@@ -37,6 +37,7 @@ n_embd = 512
 dropout = 0.1 # for pretraining 0 is good, for finetuning try 0.1+
 bias = False # do we use bias inside LayerNorm and Linear layers?
 vocab_size = 1970
+temperature = 0.001
 
 # aux losses
 aux_seer_loss = False
@@ -58,6 +59,6 @@ warmup_iters = 0
 compile = True
 eval_only = True
 
-invalid_retries = 5
+invalid_retries = 0
 sf_workers = 14
 sb = False

@@ -71,6 +71,7 @@ n_head = 12
 n_embd = 768
 dropout = 0.0 # for pretraining 0 is good, for finetuning try 0.1+
 bias = False # do we use bias inside LayerNorm and Linear layers?
+temperature = 1.0
 # RL
 baseline = "GRPO"
 clip_eps = 0.2
@@ -115,7 +116,7 @@ config = {k: globals()[k] for k in config_keys} # will be useful for logging
 # various inits, derived attributes, I/O setup
 ddp = int(os.environ.get('RANK', -1)) != -1 # is this a ddp run?
 if ddp:
-    init_process_group(backend=backend, rank=ddp)
+    init_process_group(backend=backend, rank=int(os.environ.get("RANK", -1)))
     ddp_rank = int(os.environ['RANK'])
     ddp_local_rank = int(os.environ['LOCAL_RANK'])
     ddp_world_size = int(os.environ['WORLD_SIZE'])
@@ -224,7 +225,7 @@ if wandb_log and master_process:
 
 # Create a barrier function for use during parallel evaluation
 if ddp:
-    wait_fn = lambda: barrier()
+    wait_fn = barrier
 else:
     wait_fn = lambda: None
 
@@ -317,7 +318,7 @@ try:
                     pi_theta, batch_size, eval_iters if iter_num % hifi_eval_interval != 0 else hifi_eval_iters, ddp_local_rank, f"./pgn/{iter_num}_", 
                     wait = wait_fn, tok_type = tok_type, tokenizer_path = tokenizer_path, world_size = ddp_world_size, use_opening_book = use_opening_book,
                     invalid_retries = invalid_retries, game_format = game_format, include_idx = include_idx, sf_workers = sf_workers, sb = sb,
-                    lw_elo = eval_lw_elo, up_elo = eval_up_elo
+                    lw_elo = eval_lw_elo, up_elo = eval_up_elo, temp = temperature
                 )
 
                 if eval_only:
@@ -375,7 +376,7 @@ try:
                         group_size = group_size if baseline == "GRPO" else 1,
                         sf_rating_games = None, invalid_retries = invalid_retries,
                         game_format = game_format, include_idx = include_idx, sf_workers = sf_workers, sb = sb,
-                        lw_elo = train_lw_elo, up_elo = train_up_elo
+                        lw_elo = train_lw_elo, up_elo = train_up_elo, temp = temperature
                     )
                     P = P[:, 1:] # B x (S - 1)
                     G = G.to(device)

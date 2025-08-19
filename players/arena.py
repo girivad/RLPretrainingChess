@@ -306,16 +306,16 @@ def sample_sf_games_fast(ratings, games_per_pair = 20):
 
     return [GameState.init_terminal_game(outcome, 0, ["Stockfish", "Stockfish"], [w_elo, b_elo]) for w_elo, b_elo, outcome in zip(elos[:, 0], elos[:, 1], outcomes)]
 
-def sample_games(pi_theta, total_games, bsz, rank, tok_type = "move", tokenizer_path = "./tokenizer/tokenizers/move_token.pkl", self_play = False, write_out = None, sf_rating_games = "fast", sf_time = 0.1, use_opening_book = False, group_size = 1, invalid_retries = 0, game_format = "uci", include_idx = False, sf_workers = 14, sb = False, lw_elo: int = 1350, up_elo: int = 2750):
+def sample_games(pi_theta, total_games, bsz, rank, tok_type = "move", tokenizer_path = "./tokenizer/tokenizers/move_token.pkl", self_play = False, write_out = None, sf_rating_games = "fast", sf_time = 0.1, use_opening_book = False, group_size = 1, invalid_retries = 0, game_format = "uci", include_idx = False, sf_workers = 14, sb = False, lw_elo: int = 1350, up_elo: int = 2750, temp: float = 1.0):
     synthetic_games = []
     if sf_rating_games == "fast" and not self_play:
         sf_ratings = range(lw_elo, up_elo + 1, 100)
         synthetic_games = sample_sf_games_fast(sf_ratings, games_per_pair = max(total_games // len(sf_ratings), 400))
 
-    p0 = GPTPlayer(pi_theta, f"cuda:{rank}", max_move_size = MMS[tok_type], tok_type = tok_type, tokenizer_path = tokenizer_path, game_format = game_format)
+    p0 = GPTPlayer(pi_theta, f"cuda:{rank}", max_move_size = MMS[tok_type], tok_type = tok_type, tokenizer_path = tokenizer_path, game_format = game_format, temp = temp)
 
     if self_play:
-        p1 = GPTPlayer(pi_theta, f"cuda:{rank}", max_move_size = MMS[tok_type], tok_type = tok_type, tokenizer_path = tokenizer_path, game_format = game_format)
+        p1 = GPTPlayer(pi_theta, f"cuda:{rank}", max_move_size = MMS[tok_type], tok_type = tok_type, tokenizer_path = tokenizer_path, game_format = game_format, temp = temp)
     else:
         p1 = StockfishPlayer(sf_time, sf_workers)
 
@@ -380,13 +380,16 @@ def calc_elo(pgn_file):
     
     return elo, lw_bd, up_bd
 
-def estimate_elo(pi_theta, eval_bsz, eval_games, rank, write_out, wait, tok_type = "move", tokenizer_path = "./tokenizer/tokenizers/move_token.pkl", world_size = None, use_opening_book = True, invalid_retries = 0, game_format = "uci", include_idx = False, sf_workers = 14, sb = False, lw_elo = 1350, up_elo = 2750):
-    sample_games(pi_theta, eval_games, eval_bsz, rank, tok_type, tokenizer_path, write_out = write_out, use_opening_book = use_opening_book, invalid_retries = invalid_retries, game_format = game_format, include_idx = include_idx, sf_workers = sf_workers, sb = sb, lw_elo = lw_elo, up_elo = up_elo)
+def estimate_elo(pi_theta, eval_bsz, eval_games, rank, write_out, wait, tok_type = "move", tokenizer_path = "./tokenizer/tokenizers/move_token.pkl", world_size = None, use_opening_book = True, invalid_retries = 0, game_format = "uci", include_idx = False, sf_workers = 14, sb = False, lw_elo = 1350, up_elo = 2750, temp = 1.0):
+    sample_games(pi_theta, eval_games, eval_bsz, rank, tok_type, tokenizer_path, write_out = write_out, use_opening_book = use_opening_book, invalid_retries = invalid_retries, game_format = game_format, include_idx = include_idx, sf_workers = sf_workers, sb = sb, lw_elo = lw_elo, up_elo = up_elo, temp = temp)
     wait()
+    elo_m, elo_lw_m, elo_up_m = None, None, None
     if rank == 0:
         assert world_size is not None
         collate_games([write_out + str(r) for r in range(world_size)], write_out)
 
-        return calc_elo(write_out)
+        elo_m, elo_lw_m, elo_up_m = calc_elo(write_out)
     
-    return None, None, None
+    wait()
+    
+    return elo_m, elo_lw_m, elo_up_m

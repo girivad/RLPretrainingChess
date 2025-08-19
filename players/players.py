@@ -59,7 +59,7 @@ class StockfishPlayer(object):
         return moves
 
     def play(
-        self, games_states: List[GameState]
+        self, games_states: List[GameState], **kwargs
     ):
 
         game_ins = [(game_state.game_id, game_state.board, game_state.ratings[game_state.turn]) for game_state in games_states]
@@ -131,7 +131,7 @@ class GPTPlayer(object):
         padding_games = 2 ** ceil(log(game_ct, 2)) - game_ct # Pad batch size to the nearest power of 2.
 
         games = games + [self.tokenizer(";" * max_game_len, return_type = "torch", pgn = False) for _ in range(padding_games)]
-        temperature = torch.tensor([min((game_state.retry_limit - game_state.retries)/(game_state.retry_limit) * 1 + 0.001, 0.5) if game_state.retry_limit != 0 else 1 for game_state in game_states] + [1] * padding_games).view(-1, 1).to(self.device)
+        temperature = torch.tensor([min((game_state.retry_limit - game_state.retries)/(game_state.retry_limit) * 1 + 0.001, 0.5) if game_state.retry_limit != 0 else self.temperature for game_state in game_states] + [1] * padding_games).view(-1, 1).to(self.device)
         completed_msk = torch.tensor([game_state.is_complete() for game_state in game_states] + [True] * padding_games, device = self.device)
         # if self.device == "cuda:0":
         #     print("Playing Moves on:", games, self.detokenizer(games, batch = True), "from start_pos:", start_pos, "Completed Mask:", completed_msk)
@@ -159,7 +159,7 @@ class GPTPlayer(object):
         return new_start_pos if all_moves_success else start_pos
 
     def play(
-        self, games_states: List[GameState], start_pos = 0, sb = False
+        self, games_states: List[GameState], start_pos = 0, sb = False, **kwargs
     ):
         return self.play_moves(games_states, start_pos = start_pos, sb = sb)
 
