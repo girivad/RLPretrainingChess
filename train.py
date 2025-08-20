@@ -278,7 +278,7 @@ while True:
         #         sf_workers = 14, sb = False, lw_elo = 1350, up_elo = 2750, temp = 1.0
         #     )
 
-        print("Rank", ddp_local_rank, "Completed Elo Estimation")
+        # print("Rank", ddp_local_rank, "Completed Elo Estimation")
 
     # evaluate the loss on train/val sets and write checkpoints
     if iter_num % eval_interval == 0 and master_process:
