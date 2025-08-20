@@ -7,8 +7,10 @@ file_dict = {idx + 1: file for idx, file in enumerate("abcdefgh")}
 def format_move(f1, r1, f2, r2, promotion_piece = ""):
   return file_dict[f1] + str(r1) + file_dict[f2] + str(r2) + promotion_piece
 
-def calculate_vocab():
-    vocab = [" ", ";"]
+def calculate_vocab(retain_spaces = True):
+    vocab = [";"]
+    if retain_spaces:
+        vocab.append(" ")
 
     for f1, r1, f2, r2 in product(range(1, 9), range(1, 9), range(1, 9), range(1, 9)):
         if f1 == f2 and r1 == r2:
@@ -45,10 +47,11 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--tokenizer_dst", type = str, required = True)
+    parser.add_argument("--ignore_spaces", action = "store_true")
     args = parser.parse_args()
     
-    vocab = calculate_vocab()
-    assert len(vocab) == 1970
+    vocab = calculate_vocab(retain_spaces = not args.ignore_spaces)
+    assert len(vocab) == 1970 - (1 * args.ignore_spaces) # 1970 if retaining spaces, else 1969
 
     tok_dict = {token: idx for idx, token in enumerate(vocab)}
     detok_dict = {idx: token for idx, token in enumerate(vocab)}
