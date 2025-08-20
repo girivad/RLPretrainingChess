@@ -269,7 +269,7 @@ while True:
         param_group['lr'] = lr
 
     # Additional Eval: Calculate Elo using default model parameters
-    if iter_num % hifi_eval_interval == 0:
+    # if iter_num % hifi_eval_interval == 0:
         # with torch.no_grad():
         #     elo, lw_bd, up_bd = estimate_elo(
         #         model, batch_size, eval_iters, ddp_local_rank, f"./pgn/{iter_num}", 
