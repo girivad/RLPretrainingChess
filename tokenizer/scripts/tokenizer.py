@@ -100,7 +100,7 @@ def load_tokenizer(tok_type, tokenizer_path):
 
         if tok_type == "char":
             tokenize = lambda ex, batch = False, return_type = "np", pgn = False: char_tokenize(preproc_game(ex), stoi, dtype, return_type = return_type) if not batch else [char_tokenize(x, stoi, dtype, return_type = return_type) for x in preproc_game(ex)]
-        elif tok_type == "move" or tok_type = "action":
+        elif tok_type == "move" or tok_type == "action":
             tokenize = lambda ex, batch = False, return_type = "np", pgn = True: move_tokenize(preproc_game(ex), stoi, dtype, return_type = return_type, pgn = pgn) if not batch else [move_tokenize(x, stoi, dtype, return_type = return_type, pgn = pgn) for x in preproc_game(ex)]
         detokenize = lambda idx, batch = False: map_detokenize(idx, itos, batch)
 

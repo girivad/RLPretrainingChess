@@ -16,7 +16,7 @@ STREAM_SIZE = 1024 ** 3
 
 def update_gpr(g, G, p, P, r, R, tokenize):
     g = tokenize(g, batch = True, pgn = False)
-    g = [list(g_s.astype(np.int32)) for g_s in g] # TODO: g is a list of np arrays.
+    g = [list(g_s.astype(np.int32)) for g_s in g]
     p = sum([[ptype] * len(tokens) for ptype, tokens in zip(p, g)], [])
     g = sum(g, [])
     

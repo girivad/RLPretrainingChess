@@ -130,8 +130,8 @@ class GameState(object):
         except IllegalMoveError:
             self.termination = f"Illegal Move: \'{move_str}\' given context: \'{self.state}\'; Player: \'{self.players[self.turn]}\'"
             if self.retries > 0:
-                print(self.termination)
-                print("Retrying move...")
+                # print(self.id, self.termination)
+                # print("Retrying move...")
                 self.termination = ""
                 self.retries -= 1
                 return False
@@ -140,8 +140,8 @@ class GameState(object):
         except InvalidMoveError:
             self.termination = f"Invalid Move: \'{move_str}\' given context: \'{self.state}\'; Player: \'{self.players[self.turn]}\'"
             if self.retries > 0:
-                print(self.termination)
-                print("Retrying move...")
+                # print(self.id, self.termination)
+                # print("Retrying move...")
                 self.termination = ""
                 self.retries -= 1
                 return False
@@ -150,8 +150,8 @@ class GameState(object):
         except AmbiguousMoveError:
             self.termination = f"Ambiguous Move: \'{move_str}\' given context: \'{self.state}\'; Player: \'{self.players[self.turn]}\'"
             if self.retries > 0:
-                print(self.termination)
-                print("Retrying move...")
+                # print(self.id, self.termination)
+                # print("Retrying move...")
                 self.termination = ""
                 self.retries -= 1
                 return False

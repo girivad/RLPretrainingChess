@@ -598,9 +598,11 @@ class GPT(nn.Module):
         for game_idx in range(games_tensor.size(0)):
             mpl = -1
             for tok in range(games_tensor.size(1) - 1, -1, -1):
-                if (space_token and sp_msk[game_idx, tok]) or game_tensor[game_idx, tok] == -1:
+                if space_token is not None and sp_msk[game_idx, tok]:
                     mpl = tok
                     break
+                if space_token is None and mv_msk[game_idx, tok]:
+                    mpl = tok
             if mpl < 1:
                 continue
             
