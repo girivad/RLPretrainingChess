@@ -270,13 +270,13 @@ while True:
 
     # Additional Eval: Calculate Elo using default model parameters
     if iter_num % hifi_eval_interval == 0:
-        with torch.no_grad():
-            elo, lw_bd, up_bd = estimate_elo(
-                model, batch_size, eval_iters, ddp_local_rank, f"./pgn/{iter_num}", 
-                wait, tok_type = tok_type, tokenizer_path = tokenizer_path, world_size = ddp_world_size, use_opening_book = True,
-                invalid_retries = invalid_retries, game_format = "uci", include_idx = False, 
-                sf_workers = 14, sb = False, lw_elo = 1350, up_elo = 2750, temp = 1.0
-            )
+        # with torch.no_grad():
+        #     elo, lw_bd, up_bd = estimate_elo(
+        #         model, batch_size, eval_iters, ddp_local_rank, f"./pgn/{iter_num}", 
+        #         wait, tok_type = tok_type, tokenizer_path = tokenizer_path, world_size = ddp_world_size, use_opening_book = True,
+        #         invalid_retries = invalid_retries, game_format = "uci", include_idx = False, 
+        #         sf_workers = 14, sb = False, lw_elo = 1350, up_elo = 2750, temp = 1.0
+        #     )
 
         print("Rank", ddp_local_rank, "Completed Elo Estimation")
 
