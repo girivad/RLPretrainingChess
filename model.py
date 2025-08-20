@@ -588,7 +588,7 @@ class GPT(nn.Module):
                 torch.full((1, max_token), eos_token, device = device)
             ) # For completed games, replace with sequences of only padding tokens. 
 
-        sp_msk = games_tensor == space_token
+        sp_msk = games_tensor == space_token if space_token is not None else torch.full_like(games_tensor, False)
 
         if completed_msk is not None:
             assert not torch.any(torch.any(sp_msk, dim = 1) & completed_msk)
@@ -598,7 +598,7 @@ class GPT(nn.Module):
         for game_idx in range(games_tensor.size(0)):
             mpl = -1
             for tok in range(games_tensor.size(1) - 1, -1, -1):
-                if sp_msk[game_idx, tok]:
+                if (space_token and sp_msk[game_idx, tok]) or game_tensor[game_idx, tok] == -1:
                     mpl = tok
                     break
             if mpl < 1:

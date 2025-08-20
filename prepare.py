@@ -86,6 +86,7 @@ if __name__ == "__main__":
 
     def process(example):
         assert tokenizer is not None
+        assert example[column_name][0] != ";" # Shouldn't be doubling the SOG symbol.
         ids = tokenizer(";" + example[column_name], return_type = "np")
         out = {"ids": ids, "len": len(ids)}
         return out

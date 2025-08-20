@@ -45,7 +45,7 @@ def move_tokenize(cntnts, stoi, dtype, return_type = "np", pgn = True):
     for move in re.split(r"([; ])", cntnts):
         if len(move) == 0:
             continue
-        if move in " ;":
+        if move in " ;" and move in stoi:
             tokens.append(stoi[move])
             continue
 
@@ -100,7 +100,7 @@ def load_tokenizer(tok_type, tokenizer_path):
 
         if tok_type == "char":
             tokenize = lambda ex, batch = False, return_type = "np", pgn = False: char_tokenize(preproc_game(ex), stoi, dtype, return_type = return_type) if not batch else [char_tokenize(x, stoi, dtype, return_type = return_type) for x in preproc_game(ex)]
-        elif tok_type == "move":
+        elif tok_type == "move" or tok_type = "action":
             tokenize = lambda ex, batch = False, return_type = "np", pgn = True: move_tokenize(preproc_game(ex), stoi, dtype, return_type = return_type, pgn = pgn) if not batch else [move_tokenize(x, stoi, dtype, return_type = return_type, pgn = pgn) for x in preproc_game(ex)]
         detokenize = lambda idx, batch = False: map_detokenize(idx, itos, batch)
 

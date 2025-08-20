@@ -135,7 +135,16 @@ class GPTPlayer(object):
         completed_msk = torch.tensor([game_state.is_complete() for game_state in game_states] + [True] * padding_games, device = self.device)
         # if self.device == "cuda:0":
         #     print("Playing Moves on:", games, self.detokenizer(games, batch = True), "from start_pos:", start_pos, "Completed Mask:", completed_msk)
-        idx_moves, new_start_pos = self.model.module.generate_moves(games, device = self.device, max_move_size = self.max_move_size, overwrite_spaces = True, temperature = temperature, top_k = self.k, space_token = int(self.tokenizer(" ")[0]), eos_token = int(self.tokenizer(";")[0]), start_pos = start_pos, kv_cache = sb, completed_msk = completed_msk)
+
+        sp_token = self.tokenizer(" ")
+        sp_token = None if len(sp_token) == 0 else int(sp_token[0])
+
+        idx_moves, new_start_pos = self.model.module.generate_moves(
+            games, device = self.device, max_move_size = self.max_move_size, 
+            overwrite_spaces = sp_token is not None, temperature = temperature, top_k = self.k, 
+            space_token = sp_token, eos_token = int(self.tokenizer(";")[0]
+        ), 
+        start_pos = start_pos, kv_cache = sb, completed_msk = completed_msk)
         idx_moves = idx_moves[:game_ct]
         str_moves = self.detokenizer(idx_moves, batch = True)
         # if self.device == "cuda:0":

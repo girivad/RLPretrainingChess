@@ -276,7 +276,8 @@ def collate_games(files: List[str], write_out: str):
 
 MMS = {
     "char": 5,
-    "move": 2
+    "move": 2,
+    "action": 1
 } # Max Move Size in Tokens
 
 def sample_sf_games_fast(ratings, games_per_pair = 20):

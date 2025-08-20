@@ -150,7 +150,7 @@ ctx = nullcontext() if device_type == 'cpu' else torch.amp.autocast(device_type=
 model_args = dict(n_slayer=n_slayer, n_layer=n_layer, n_head=n_head, n_embd=n_embd, block_size=block_size,
                   bias=bias, vocab_size=None, dropout=dropout) # start with model_args from command line
 
-assert batch_size % group_size == 0, f"Batch Size {batch_size} should have been divisble by Group Size ${group_size}."
+assert batch_size % group_size == 0, f"Batch Size {batch_size} should have been divisible by Group Size ${group_size}."
 
 print(f"Beginning training from {out_dir}")
 # resume training from a checkpoint.
@@ -238,66 +238,6 @@ running_mfu = -1.0
 
 pi_ref.eval()
 
-# Interactive Evaluation Check:
-# one_move = True
-# tok, detok, _ = load_tokenizer(tok_type, tokenizer_path)
-# player = GPTPlayer(pi_theta, device, tok_type = tok_type, tokenizer_path = tokenizer_path, game_format = "pgn")
-# pgn_file = open("./pgn/test.pgn", "w")
-# print("Enter Opening:")
-# while ((opening := input()) != "X"):
-#     game_transcript = opening # ''';1.'''# d4 d5 2. c4 e6 3. a3 Nf6 4. Nc3 c6 5. cxd5 cxd5 6. Bg5 h6 7. Bh4 g5 8. Bg3 Nc6 9. h3 Bg7 10. e3 O-O 11. Bd3 a6 12. Bc2 b5 13. e4 dxe4 14. Nxe4 Nxe4 15. Bxe4 Qa5+ 16. b4 Qb6 17. Ne2 Nxd4 18. Ra2 Rb8 19. O-O Rd8 20. Nxd4 Bxd4 21. Rd2 Bb7 22. Bb1 Qc6 23. Qf3 Qxf3 24. gxf3 e5 25. Be4 Kg7 26. Bxb7 Rxb7 27. Bxe5+ Bxe5 28. Rxd8 Bf6 29. Rfd1 g4 30. fxg4 Bxd8 31. Rxd8 Rc7 32. Kg2 Rc3 33. Rd2 Rxa3 34. Rb2 Ra4 35. Kg3 Ra3+ 36. Kh4 Kg6 37. f4 Rd3 38. Ra2 Rd4 39. Rxa6+ Kg7 40. f5 Rxb4 41. Kh5 f6 42. Ra7+ Kf8 43. Kxh6 Rb3 44. Kg6 Rxh3 45. Kxf6 Rh6+ 46. Kg5 Rb6 47. f6 b4 48. Kg6 Ke8 49. Kg7 b3 50. f7+ Kd8'''
-#     # game_transcript = re.sub("[0-9]+\. ", "", game_transcript)
-
-#     game_state = GameState(0, None, opening = game_transcript, invalid_retries = 5, format = "pgn", include_idx = True, w_player_id = 1)
-
-#     if one_move:
-#         print("Initial Game:", game_state.state)
-#         init_turn = game_state.turn
-#         for _ in range(5):
-#             player.play_moves([game_state])
-#             if game_state.turn != init_turn:
-#                 break
-
-#         print("Full State of the Game:", game_state.state)
-#         continue
-
-#     print("Opening:", game_state.turn)
-
-#     if game_state.turn == 0:
-#         if master_process:
-#             print(f"Enter Move: \'{game_state.state}\'")
-#         move = input()
-#         game_state.register_move(move, parse_move = "pgn")
-
-#     while True:                
-#         player.play_moves([game_state])
-
-#         if master_process and game_state.is_complete():
-#             print("Game Completed:", game_state.termination, game_state.outcome)
-#             game_state.write_outcome(pgn_file)
-#             break
-
-#         if master_process:
-#             print(f"Enter Move: \'{game_state.state}\'")
-
-#         move = input()
-#         if move == "X":
-#             break
-#         game_state.register_move(move, parse_move = "pgn")
-
-#         if master_process and game_state.is_complete():
-#             print("Game Completed:", game_state.termination, game_state.outcome)
-#             game_state.write_outcome(pgn_file)
-#             break
-
-#     print("Enter Opening:")
-
-# # pgn_file.close()
-
-# if ddp:
-#     destroy_process_group()
-# exit(0)
-
 if master_process:
     RL_prg_bar = tqdm(total = max_iters)
 
@@ -312,7 +252,7 @@ try:
             param_group['lr'] = lr
 
         # evaluate the elo on further games and write checkpoints
-        if eval_only or iter_num % eval_interval == 0:      
+        if eval_only or iter_num % eval_interval == 0:
             with torch.no_grad():
                 elo, lw_bd, up_bd = estimate_elo(
                     pi_theta, batch_size, eval_iters if iter_num % hifi_eval_interval != 0 else hifi_eval_iters, ddp_local_rank, f"./pgn/{iter_num}_", 
