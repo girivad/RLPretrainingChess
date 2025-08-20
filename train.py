@@ -76,7 +76,7 @@ lr_decay_iters = 600000 # should be ~= max_iters per Chinchilla
 min_lr = 6e-5 # minimum learning rate, should be ~= learning_rate/10 per Chinchilla
 # Evaluation Settings
 tok_type = "move"
-tokenizer_path = "./tokenizer/tokenizers/move_tokenizer.pkl"
+tokenizer_path = "./tokenizer/tokenizers/move_token.pkl"
 invalid_retries = 5
 # DDP settings
 backend = 'nccl' # 'nccl', 'gloo', etc.
@@ -268,15 +268,15 @@ while True:
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
 
-    # Additional Eval: Calculate Elo
+    # Additional Eval: Calculate Elo using default model parameters
     if iter_num % hifi_eval_interval == 0:
         with torch.no_grad():
-                elo, lw_bd, up_bd = estimate_elo(
-                    model, batch_size, eval_iters, ddp_local_rank, f"./pgn/{iter_num}", 
-                    wait, tok_type = tok_type, tokenizer_path = tokenizer_path, world_size = ddp_world_size, use_opening_book = True,
-                    invalid_retries = invalid_retries, game_format = "uci", include_idx = False, 
-                    sf_workers = 14, sb = False, lw_elo = 1350, up_elo = 2750, temp = 1.0
-                )
+            elo, lw_bd, up_bd = estimate_elo(
+                model, batch_size, eval_iters, ddp_local_rank, f"./pgn/{iter_num}", 
+                wait, tok_type = tok_type, tokenizer_path = tokenizer_path, world_size = ddp_world_size, use_opening_book = True,
+                invalid_retries = invalid_retries, game_format = "uci", include_idx = False, 
+                sf_workers = 14, sb = False, lw_elo = 1350, up_elo = 2750, temp = 1.0
+            )
 
     # evaluate the loss on train/val sets and write checkpoints
     if iter_num % eval_interval == 0 and master_process:
