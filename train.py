@@ -163,8 +163,18 @@ iter_num = 0
 best_val_loss = 1e9
 
 # model init
-model_args = dict(n_slayer=n_slayer, n_layer=n_layer, n_head=n_head, n_embd=n_embd, block_size=block_size,
-                  bias=bias, vocab_size=vocab_size, dropout=dropout, aux_seer_loss = aux_seer_loss, aux_rcausal_loss = aux_rcausal_loss) # start with model_args from command line
+model_args = dict(
+        n_layer=n_layer, n_head=n_head, n_embd=n_embd, block_size=block_size,
+        bias=bias, vocab_size=vocab_size, dropout=dropout,
+) # start with model_args from command line
+
+if architecture == "sf-gpt":
+    model_args["n_slayer"] = n_slayer
+    model_args["lamda"] = lamda
+
+if architecture == "mtp-gpt":
+    model_args["k"] = k
+    model_args["discount_rate"] = discount_rate
 
 config_class = model_configs[architecture]
 model_class = models[architecture]
