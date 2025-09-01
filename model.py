@@ -17,10 +17,10 @@ from torch.nn import functional as F
 from torch import logsumexp
 from torch.distributions import Categorical
 from utils import smooth
+from contextlib import nullcontext
 
 SPACE_TOKEN = 0
 EOS_TOKEN = 15
-LOSS_COUNT = 6
 
 class LayerNorm(nn.Module):
     """ LayerNorm but with an optional bias. PyTorch doesn't support simply bias=False """
@@ -97,11 +97,8 @@ class SelfAttention(nn.Module):
         q = q.view(B, -1, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, Tq, hs)
         v = v.view(B, -1, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, Tk, hs)
 
-        # print("q:", q.size(), "k:", k.size(), "v:", v.size())
-
         # causal self-attention; Self-attend: (B, nh, T, hs) x (B, nh, hs, T) -> (B, nh, T, T)
         if self.flash:
-            # print("Using Flash Attention")
             # efficient attention using Flash Attention CUDA kernels
             y = torch.nn.functional.scaled_dot_product_attention(q, k, v, attn_mask=None, dropout_p=self.dropout if self.training else 0, is_causal= (start_pos == 0 or not kv_cache))
         else:
@@ -112,18 +109,7 @@ class SelfAttention(nn.Module):
             att = self.attn_dropout(att)
             y = att @ v # (B, nh, T, T) x (B, nh, T, hs) -> (B, nh, T, hs)
 
-        # Continuous Influence AuxLoss
-        # att.T@y: (B, nh, T, hs)
-        # y: (B, nh, T, hs)
-        # w_r(y): Individual maps for different heads, w_r: nh * hs -> nh * hs => nh x hs
-        
-        # aux_target = att.transpose(2, 3) @ y
         y = y.transpose(1, 2).contiguous().view(B, -1, C) # re-assemble all head outputs side by side
-        # aux_loss = torch.mean(
-        #     torch.square(
-        #         aux_target - self.w_r(y).view(B, T, self.n_head, C // self.n_head).transpose(1, 2)
-        #     )
-        # )
 
         # output projection
         y = self.resid_dropout(self.c_proj(y))
@@ -162,21 +148,7 @@ class Block(nn.Module):
         x = x + self.mlp(self.ln_2(x))
         return x
 
-@dataclass
-class GPTConfig:
-    block_size: int = 1024
-    vocab_size: int = 29 # PGN character vocabulary without move numbers
-    n_layer: int = 12
-    n_head: int = 12
-    n_embd: int = 768
-    dropout: float = 0.0
-    bias: bool = True # True: bias in Linears and LayerNorms, like GPT-2. False: a bit better and faster
-    n_slayer: int = 0
-    lamda: float = 0.5
-    aux_seer_loss: bool = False
-    aux_rcausal_loss: bool = False
-    max_batch_size: int = 100
-
+# Reusable Loss Terms
 def ce_loss(logits, targets):
     return F.cross_entropy(logits.view(-1, logits.size(-1)), targets.reshape(-1), ignore_index=-1)
 
@@ -196,17 +168,14 @@ def kd_loss(st_logits, se_logits):
 def z_loss(logits):
     return 1e-4 * (logsumexp(logits, dim = -1) ** 2).sum()
 
-# Auxiliary Pretraining Losses:
+# Auxiliary Pretraining Losses for Seer Forcing:
 def aux_seer_loss(st_logits, se_logits, idx, base_loss, loss_tensor, lamda = 0.5):
-    # loss_dict = dict()
     loss = base_loss
 
     # KL-Divergence between Student and Seer
     kld, se_entropy = kd_loss(st_logits[:, :-1], se_logits[:, 1:].detach().clone())
     loss_tensor[2] = kld
     loss_tensor[3] = se_entropy
-    # loss_dict["seer entropy"] = se_entropy
-    # loss_dict["kld"] = kld.item()
     loss = lamda * loss + (1 - lamda) * kld 
     assert not torch.any(torch.isnan(loss))
 
@@ -214,28 +183,21 @@ def aux_seer_loss(st_logits, se_logits, idx, base_loss, loss_tensor, lamda = 0.5
     # The seer only predicts tokens within context window, no right-shifting needed.
     se_ce = ce_loss(se_logits, idx)
     loss_tensor[4] = se_ce
-    # loss_dict["se_ce"] = se_ce.item()
     loss = loss + se_ce
     assert not torch.any(torch.isnan(loss))
 
     return loss
 
-loss_names = {
-    0: "st_ce",
-    1: "st_z",
-    2: "kld",
-    3: "se_e",
-    4: "se_ce",
-    5: "se_z"
-}
-
-def name_losses(loss_tensor):
-    loss_dict = {
-        loss_names[idx]: loss_tensor[idx].item() for idx in range(loss_tensor.size(0))
-    }
-
-    return loss_dict
-
+@dataclass
+class GPTConfig:
+    block_size: int = 1024
+    vocab_size: int = 29 # PGN character vocabulary without move numbers
+    n_layer: int = 12
+    n_head: int = 12
+    n_embd: int = 768
+    dropout: float = 0.0
+    bias: bool = True # True: bias in Linears and LayerNorms, like GPT-2. False: a bit better and faster
+    max_batch_size: int = 100
 
 class GPT(nn.Module):
 
@@ -259,23 +221,6 @@ class GPT(nn.Module):
         # not 100% sure what this is, so far seems to be harmless. TODO investigate
         # self.transformer.wte.weight = self.lm_head.weight # https://paperswithcode.com/method/weight-tying
 
-        # Seer Model:
-        self.seer = None
-        if config.n_slayer > 0:
-            self.seer = nn.ModuleDict(dict(
-                h = nn.ModuleList([Block(config) for _ in range(config.n_slayer)]),
-                ln_f = LayerNorm(config.n_embd, bias=config.bias),
-                ln_p1 = LayerNorm(config.n_embd, bias = config.bias),
-                mha_p = SelfAttention(config),
-                w_p = nn.Linear(config.n_embd, config.n_embd),
-                ln_p2 = LayerNorm(config.n_embd, bias = config.bias),
-                ln_f1 = LayerNorm(config.n_embd, bias = config.bias),
-                mha_f = SelfAttention(config),
-                w_f = nn.Linear(config.n_embd, config.n_embd),
-                ln_f2 = LayerNorm(config.n_embd, bias = config.bias),
-                fusion = MLP(config)
-            ))
-
         # init all weights
         self.apply(self._init_weights)
         # apply special scaled init to the residual projections, per GPT-2 paper
@@ -286,9 +231,9 @@ class GPT(nn.Module):
         # report number of parameters
         num_params = self.get_num_params()
         if num_params < 1e9:
-            print("number of parameters: %.2fM" % (num_params/1e6,))
+            print("number of parameters in GPT: %.2fM" % (num_params/1e6,))
         else:
-            print("number of parameters: %.2fM" % (num_params/1e9,))
+            print("number of parameters in GPT: %.2fM" % (num_params/1e9,))
 
     def create_kv_cache(self, bsz, device):
         for blk in self.transformer.h:
@@ -304,8 +249,6 @@ class GPT(nn.Module):
         n_params = sum(p.numel() for p in self.parameters())
         if non_embedding:
             n_params -= self.transformer.wpe.weight.numel() + self.transformer.wte.weight.numel()
-        if not train and self.seer is not None:
-            n_params -= sum(param.numel() for param in self.seer.parameters())
         return n_params
 
     def _init_weights(self, module):
@@ -316,39 +259,6 @@ class GPT(nn.Module):
         elif isinstance(module, nn.Embedding):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
-    def seer_forward(self, emb, device):
-        b, t, e = emb.size()
-        xl2r = emb[:, :-1]
-        xr2l = torch.flip(emb[:, 1:], dims = (1, ))
-
-        for blk in self.seer.h:
-            xl2r = blk(xl2r)
-            xr2l = blk(xr2l)
-
-        xl2r = xl2r + self.seer.mha_p(self.seer.ln_p1(xl2r))
-        xr2l = xr2l + self.seer.mha_f(self.seer.ln_f1(xr2l))
-
-        x = self.seer.w_f(
-            torch.concat(
-                [ 
-                  torch.flip(self.seer.ln_f2(xr2l), (1, )), # B x (S - 1) x d_m
-                  torch.zeros((b, 1, e), device = device)
-                ],
-                dim = 1
-              )
-          ) + self.seer.w_p(
-              torch.concat(
-                [
-                    torch.zeros((b, 1, e), device = device), 
-                    self.seer.ln_p2(xl2r)  # B x (S - 1) x d_m
-                ],
-                dim = 1                  
-              )
-          )
-
-        x = self.seer.fusion(x)
-        return self.seer.ln_f(x)
-
     def forward(self, idx, targets = None, evaluate = False, batch_inf = False, start_pos = 0, kv_cache = False):
         inference = targets is None
         device = idx.device
@@ -356,8 +266,7 @@ class GPT(nn.Module):
         assert t + start_pos <= self.config.block_size, f"Cannot forward sequence of length {start_pos}/{t}, block size is only {self.config.block_size}"
         pos = torch.arange(start_pos, t + start_pos, dtype=torch.long, device=device) # shape (t)
 
-        # loss_dict = None #dict()
-        loss_tensor = torch.zeros((LOSS_COUNT, ))
+        loss_tensor = torch.zeros((2, ))
 
         # forward the GPT model itself
         tok_emb = self.transformer.wte(idx) # token embeddings of shape (b, t, n_embd)
@@ -386,36 +295,27 @@ class GPT(nn.Module):
         st_logits = self.lm_head(x) # Tokens 2:ctx_len + 1
         loss = ce_loss(st_logits, targets)
         loss_tensor[0] = loss
-        # loss_dict["st_ce"] = loss.item()
         assert not torch.any(torch.isnan(loss))
 
         if evaluate:
             return st_logits, loss
 
-        # Auxiliary Training Losses
-        if self.seer is not None:
-            h = self.seer_forward(emb, device = device)
-            se_logits = self.lm_head(h) # 1 : ctx_len
-            if self.config.aux_seer_loss:
-                # SeerLoss: (st_logits, se_logits, idx, base_loss, lambda = self.config.lambda) -> (loss, loss_dict)
-                loss = aux_seer_loss(st_logits, se_logits, idx, loss, loss_tensor, lamda = self.config.lamda)
-                # loss_dict = dict(loss_dict, **aux_loss_dict)    
-                assert not torch.any(torch.isnan(loss))
-
         st_z = z_loss(st_logits)
         loss_tensor[1] = st_z
-        # loss_dict["st_z"] = st_z.item()
         loss = loss + st_z
         assert not torch.any(torch.isnan(loss))
 
-        if self.seer is not None:
-            se_z = z_loss(se_logits)
-            loss_tensor[5] = se_z
-            # loss_dict["se_z"] = se_z.item()
-            loss = loss + se_z
-            assert not torch.any(torch.isnan(loss))
-
         return st_logits, loss, loss_tensor
+
+    def compute_gradient(self, X, Y, gradient_accumulation_steps, ctx = nullcontext(), scaler = None):
+        with ctx:
+            _, loss, micro_loss_tensor = self(X, Y)
+            loss = loss / gradient_accumulation_steps
+
+        # backward pass, with gradient scaling if training in fp16
+        scaler.scale(loss).backward()
+
+        return loss, micro_loss_tensor
 
     def crop_block_size(self, block_size):
         # model surgery to decrease the block size if necessary
@@ -425,8 +325,6 @@ class GPT(nn.Module):
         self.config.block_size = block_size
         self.transformer.wpe.weight = nn.Parameter(self.transformer.wpe.weight[:block_size])
         blks = self.transformer.h
-        if self.seer is not None:
-            blks += self.seer.h
         for block in blks:
             if hasattr(block.attn, 'bias'):
                 block.attn.bias = block.attn.bias[:,:,:block_size,:block_size]
@@ -520,7 +418,7 @@ class GPT(nn.Module):
         # see PaLM paper Appendix B as ref: https://arxiv.org/abs/2204.02311
         N = self.get_num_params()
         cfg = self.config
-        L, H, Q, T = cfg.n_layer + cfg.n_slayer, cfg.n_head, cfg.n_embd//cfg.n_head, cfg.block_size
+        L, H, Q, T = cfg.n_layer, cfg.n_head, cfg.n_embd//cfg.n_head, cfg.block_size
         flops_per_token = 6*N + 12*L*H*Q*T
         flops_per_fwdbwd = flops_per_token * T
         flops_per_iter = flops_per_fwdbwd * fwdbwd_per_iter
@@ -659,3 +557,334 @@ class GPT(nn.Module):
             [idx_tensor.item() for idx_tensor in games_tensor[s, mv_msk[s]]]
             for s in range(games_tensor.size(0))
         ], final_start_pos
+    
+@dataclass
+class SFGPTConfig(GPTConfig):
+    n_slayer: int = 0
+    lamda: float = 0.5
+
+class SFGPT(GPT):
+    def __init__(self, config: SFGPTConfig):
+        self.config = config
+        assert config.n_slayer > 0
+        self.seer = nn.ModuleDict(
+            dict(
+                h = nn.ModuleList([Block(config) for _ in range(config.n_slayer)]),
+                ln_f = LayerNorm(config.n_embd, bias=config.bias),
+                ln_p1 = LayerNorm(config.n_embd, bias = config.bias),
+                mha_p = SelfAttention(config),
+                w_p = nn.Linear(config.n_embd, config.n_embd),
+                ln_p2 = LayerNorm(config.n_embd, bias = config.bias),
+                ln_f1 = LayerNorm(config.n_embd, bias = config.bias),
+                mha_f = SelfAttention(config),
+                w_f = nn.Linear(config.n_embd, config.n_embd),
+                ln_f2 = LayerNorm(config.n_embd, bias = config.bias),
+                fusion = MLP(config)
+            )
+        )
+
+        super().__init__(config)
+
+        # init all weights (particularly the seer, here)
+        self.apply(self._init_weights)
+
+        # apply special scaled init to the residual projections, per GPT-2 paper
+        for pn, p in self.named_parameters():
+            if pn.endswith('c_proj.weight'):
+                torch.nn.init.normal_(p, mean=0.0, std=0.02/math.sqrt(2 * config.n_layer))
+
+        # report number of parameters
+        num_params = self.get_num_params()
+        if num_params < 1e9:
+            print("number of parameters in SF-GPT: %.2fM" % (num_params/1e6,))
+        else:
+            print("number of parameters in SF-GPT: %.2fB" % (num_params/1e9,))
+    
+    def get_num_params(self, non_embedding = True, train = True):
+        # Use super method to calculate the number of parameters in the whole model
+        num_params = super().get_num_params(non_embedding = non_embedding, train = train)
+
+        # If not training, Seer Parameters should not be treated as part of the model
+        if not train:
+            num_params -= sum(param.numel() for param in self.seer.parameters())
+
+        return num_params
+
+    def seer_forward(self, emb, device):
+        b, _, e = emb.size()
+        xl2r = emb[:, :-1]
+        xr2l = torch.flip(emb[:, 1:], dims = (1, ))
+
+        for blk in self.seer.h:
+            xl2r = blk(xl2r)
+            xr2l = blk(xr2l)
+
+        xl2r = xl2r + self.seer.mha_p(self.seer.ln_p1(xl2r))
+        xr2l = xr2l + self.seer.mha_f(self.seer.ln_f1(xr2l))
+
+        x = self.seer.w_f(
+            torch.concat(
+                [ 
+                  torch.flip(self.seer.ln_f2(xr2l), (1, )), # B x (S - 1) x d_m
+                  torch.zeros((b, 1, e), device = device)
+                ],
+                dim = 1
+              )
+          ) + self.seer.w_p(
+              torch.concat(
+                [
+                    torch.zeros((b, 1, e), device = device), 
+                    self.seer.ln_p2(xl2r)  # B x (S - 1) x d_m
+                ],
+                dim = 1                  
+              )
+          )
+
+        x = self.seer.fusion(x)
+        return self.seer.ln_f(x)
+    
+    def forward(self, idx, targets = None, evaluate = False, batch_inf = False, start_pos = 0, kv_cache = False):
+        inference = targets is None
+        device = idx.device
+        b, t = idx.size()
+        assert t + start_pos <= self.config.block_size, f"Cannot forward sequence of length {start_pos}/{t}, block size is only {self.config.block_size}"
+        pos = torch.arange(start_pos, t + start_pos, dtype=torch.long, device=device) # shape (t)
+
+        loss_tensor = torch.zeros((6, ))
+
+        # forward the GPT model itself
+        tok_emb = self.transformer.wte(idx) # token embeddings of shape (b, t, n_embd)
+        pos_emb = self.transformer.wpe(pos) # position embeddings of shape (t, n_embd)
+        emb = self.transformer.drop(tok_emb + pos_emb)
+
+        assert len(emb.size()) == 3, (emb.size())
+
+        x = emb
+
+        for block in self.transformer.h:
+            x = block(x, start_pos = start_pos, kv_cache = kv_cache and inference and not batch_inf)
+            assert len(x.size()) == 3, (x.size())
+        x = self.transformer.ln_f(x)
+        assert len(x.size()) == 3, (x.size())
+
+        if inference and not batch_inf:
+            try:
+                return self.lm_head(x[:, [-1], :]), None
+            except Exception as e:
+                raise Exception(f"Error Unembedding: {e}. x_in: ({b}, {t}), emb: {emb.size()}, x: {x.size()}. Start Pos: {start_pos}")
+        elif inference:
+            return self.lm_head(x), None
+
+        # if we are given some desired targets also calculate the loss
+        st_logits = self.lm_head(x) # Tokens 2:ctx_len + 1
+        loss = ce_loss(st_logits, targets)
+        loss_tensor[0] = loss
+        assert not torch.any(torch.isnan(loss))
+
+        if evaluate:
+            return st_logits, loss
+
+        h = self.seer_forward(emb, device = device)
+        se_logits = self.lm_head(h) # 1 : ctx_len
+        loss = aux_seer_loss(st_logits, se_logits, idx, loss, loss_tensor, lamda = self.config.lamda)
+        assert not torch.any(torch.isnan(loss))
+
+        st_z = z_loss(st_logits)
+        loss_tensor[1] = st_z
+        loss = loss + st_z
+        assert not torch.any(torch.isnan(loss))
+
+        se_z = z_loss(se_logits)
+        loss_tensor[5] = se_z
+        loss = loss + se_z
+        assert not torch.any(torch.isnan(loss))
+
+        return st_logits, loss, loss_tensor
+
+    def crop_block_size(self, block_size):
+        # model surgery to decrease the block size if necessary
+        # e.g. we may load the GPT2 pretrained model checkpoint (block size 1024)
+        # but want to use a smaller block size for some smaller, simpler model
+        assert block_size <= self.config.block_size
+        self.config.block_size = block_size
+        self.transformer.wpe.weight = nn.Parameter(self.transformer.wpe.weight[:block_size])
+        blks = self.transformer.h + self.seer.h
+        for block in blks:
+            if hasattr(block.attn, 'bias'):
+                block.attn.bias = block.attn.bias[:,:,:block_size,:block_size]
+
+    def estimate_mfu(self, fwdbwd_per_iter, dt):
+        """ estimate model flops utilization (MFU) in units of A100 bfloat16 peak FLOPS """
+        # first estimate the number of flops we do per iteration.
+        # see PaLM paper Appendix B as ref: https://arxiv.org/abs/2204.02311
+        N = self.get_num_params()
+        cfg = self.config
+        L, H, Q, T = cfg.n_layer + cfg.n_slayer, cfg.n_head, cfg.n_embd//cfg.n_head, cfg.block_size
+        flops_per_token = 6*N + 12*L*H*Q*T
+        flops_per_fwdbwd = flops_per_token * T
+        flops_per_iter = flops_per_fwdbwd * fwdbwd_per_iter
+        # express our flops throughput as ratio of A100 bfloat16 peak flops
+        flops_achieved = flops_per_iter * (1.0/dt) # per second
+        flops_promised = 312e12 # A100 GPU bfloat16 peak flops is 312 TFLOPS
+        mfu = flops_achieved / flops_promised
+        return mfu
+
+class MTPGPTConfig(GPTConfig):
+    k: int = 5
+    discount_rate: float = 0.99
+
+class MTPGPT(GPT):
+    def __init__(self, config: MTPGPTConfig):
+        self.config = config
+        assert config.k > 0
+        self.heads = nn.ModuleList(
+            [
+                Block(config) for _ in range(config.k)
+            ]
+        )
+
+        super().__init__(config)
+
+        self.apply(self._init_weights)
+
+        for pn, p in self.named_parameters():
+            if pn.endswith('c_proj.weight'):
+                torch.nn.init.normal_(p, mean = 0.0, std = 0.2 / math.sqrt(2 * config.n_layer))
+        
+        num_params = self.get_num_params()
+        if num_params < 1e9:
+            print("number of parameters in {self.config.k}-MTP-GPT: %.2fM" % (num_params/1e6,))
+        else:
+            print("number of parameters in {self.config.k}-MTP-GPT: %.2fB" % (num_params/1e9,))        
+
+    def get_num_params(self, non_embedding=True, train=True):
+        num_params = super().get_num_params(non_embedding, train)
+
+        if not train:
+            num_params -= sum(param.numel() for param in self.heads.parameters())
+        
+        return num_params
+    
+    def forward(self, idx, targets = None, evaluate = False, batch_inf = False, start_pos = 0, kv_cache = False, k = 1):
+        inference = targets is None
+        device = idx.device
+        b, t = idx.size()
+        assert t + start_pos <= self.config.block_size, f"Cannot forward sequence of length {start_pos}/{t}, block size is only {self.config.block_size}"
+        pos = torch.arange(start_pos, t + start_pos, dtype=torch.long, device=device) # shape (t)
+
+        loss_tensor = torch.zeros((2, ))
+
+        # forward the GPT model itself
+        tok_emb = self.transformer.wte(idx) # token embeddings of shape (b, t, n_embd)
+        pos_emb = self.transformer.wpe(pos) # position embeddings of shape (t, n_embd)
+        emb = self.transformer.drop(tok_emb + pos_emb)
+
+        assert len(emb.size()) == 3, (emb.size())
+
+        x = emb
+
+        for block in self.transformer.h:
+            x = block(x, start_pos = start_pos, kv_cache = kv_cache and inference and not batch_inf)
+            assert len(x.size()) == 3, (x.size())
+        x = self.heads[k](x)
+        x = self.transformer.ln_f(x)
+        assert len(x.size()) == 3, (x.size())
+
+        if inference and not batch_inf:
+            try:
+                return self.lm_head(x[:, [-1], :]), None
+            except Exception as e:
+                raise Exception(f"Error Unembedding: {e}. x_in: ({b}, {t}), emb: {emb.size()}, x: {x.size()}. Start Pos: {start_pos}")
+        elif inference:
+            return self.lm_head(x), None
+
+        # if we are given some desired targets also calculate the loss
+        st_logits = self.lm_head(x) # Tokens 2:ctx_len + 1
+        loss = ce_loss(st_logits, targets)
+        loss_tensor[0] = loss
+        assert not torch.any(torch.isnan(loss))
+
+        if evaluate:
+            return st_logits, loss
+
+        st_z = z_loss(st_logits)
+        loss_tensor[1] = st_z
+        loss = loss + st_z
+        assert not torch.any(torch.isnan(loss))
+
+        return st_logits, loss, loss_tensor
+
+    def compute_gradient(self, X, Y, gradient_accumulation_steps, ctx=nullcontext(), scaler=None):
+        loss_tensors = []
+        total_loss = 0
+
+        for k in range(self.config.k):
+            with ctx:
+                _, loss, micro_loss_tensor = self(X, Y, k = k)
+                loss = loss / gradient_accumulation_steps
+
+                # Discount Future Losses
+                loss = loss * (self.config.discount_rate) ** k
+                micro_loss_tensor = micro_loss_tensor * (self.config.discount_rate) ** k
+
+                # Loss Logging
+                loss_tensors.append(micro_loss_tensor)
+                total_loss = total_loss + loss
+
+            # backward pass, with gradient scaling if training in fp16
+            scaler.scale(loss).backward()
+
+            X = X[:, :-1]
+            Y = Y[:, 1:]
+        
+        return total_loss, torch.cat(loss_tensors)
+
+    def crop_block_size(self, block_size):
+        # model surgery to decrease the block size if necessary
+        # e.g. we may load the GPT2 pretrained model checkpoint (block size 1024)
+        # but want to use a smaller block size for some smaller, simpler model
+        assert block_size <= self.config.block_size
+        self.config.block_size = block_size
+        self.transformer.wpe.weight = nn.Parameter(self.transformer.wpe.weight[:block_size])
+        blks = self.transformer.h + self.heads
+        for block in blks:
+            if hasattr(block.attn, 'bias'):
+                block.attn.bias = block.attn.bias[:,:,:block_size,:block_size]
+
+    def estimate_mfu(self, fwdbwd_per_iter, dt):
+        """ estimate model flops utilization (MFU) in units of A100 bfloat16 peak FLOPS """
+        # first estimate the number of flops we do per iteration.
+        # see PaLM paper Appendix B as ref: https://arxiv.org/abs/2204.02311
+        N = self.get_num_params()
+        cfg = self.config
+        L, H, Q, T = cfg.n_layer + 1, cfg.n_head, cfg.n_embd//cfg.n_head, cfg.block_size
+        flops_per_token = 6*N + 12*L*H*Q*T
+        flops_per_fwdbwd = flops_per_token * T
+        flops_per_iter = flops_per_fwdbwd * fwdbwd_per_iter
+        # express our flops throughput as ratio of A100 bfloat16 peak flops
+        flops_achieved = flops_per_iter * (1.0/dt) # per second
+        flops_promised = 312e12 # A100 GPU bfloat16 peak flops is 312 TFLOPS
+        mfu = flops_achieved / flops_promised
+        return mfu
+
+model_configs = {"gpt": GPTConfig, "sf-gpt": SFGPTConfig, "mtp-gpt": MTPGPTConfig}
+models = {"gpt": GPT, "sf-gpt": SFGPT, "mtp-gpt": MTPGPT}
+
+def name_losses(loss_tensor, architecture):
+    loss_names = ["st_ce", "st_z"]
+    if architecture == "sf-gpt":
+        loss_names += [
+            "kld", "se_e", "se_ce", "se_z"
+        ]
+    elif architecture == "mtp-gpt":
+        K = (loss_tensor.size(0) // 2)
+        loss_names = sum(
+            [
+                [f"st_ce_{k}", f"st_z_{k}"] for k in range(K)
+            ], 
+            []
+        )
+    
+    return {
+        loss_names[idx]: loss_tensor[idx].item() for idx in range(loss_tensor.size(0))
+    }

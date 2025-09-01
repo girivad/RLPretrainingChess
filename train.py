@@ -27,7 +27,7 @@ import torch
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.distributed import init_process_group, destroy_process_group, barrier
 
-from model import GPTConfig, GPT, name_losses
+from model import name_losses, models, model_configs
 from players.arena import estimate_elo
 
 # -----------------------------------------------------------------------------
@@ -52,16 +52,24 @@ gradient_accumulation_steps = 5 * 8 # used to simulate larger batch sizes
 batch_size = 12 # if gradient_accumulation_steps > 1, this is the micro-batch size
 block_size = 1024
 # model
-n_slayer = 0
+architecture = "gpt"
+
+# base model parameters
 n_layer = 12
 n_head = 12
 n_embd = 768
 dropout = 0.0 # for pretraining 0 is good, for finetuning try 0.1+
 bias = False # do we use bias inside LayerNorm and Linear layers?
 vocab_size = 29 # Char Tokenizer
-# aux losses
-aux_seer_loss = False
-aux_rcausal_loss = False
+
+# seer forcing model parameters
+n_slayer = 0
+lamda = 0.5
+
+# k-MTP model parameters
+k = 5
+discount_rate = 0.99
+
 # adamw optimizer
 learning_rate = 6e-4 # max learning rate
 max_iters = 600000 # total number of training iterations
@@ -158,11 +166,13 @@ best_val_loss = 1e9
 model_args = dict(n_slayer=n_slayer, n_layer=n_layer, n_head=n_head, n_embd=n_embd, block_size=block_size,
                   bias=bias, vocab_size=vocab_size, dropout=dropout, aux_seer_loss = aux_seer_loss, aux_rcausal_loss = aux_rcausal_loss) # start with model_args from command line
 
+config_class = model_configs[architecture]
+model_class = models[architecture]
 if init_from == 'scratch':
     # init a new model from scratch
     print("Initializing a new model from scratch:", model_args)
-    gptconf = GPTConfig(**model_args)
-    model = GPT(gptconf)
+    gptconf = config_class(**model_args)
+    model = model_class(gptconf)
 elif init_from == 'resume':
     print(f"Resuming training from {out_dir}")
     # resume training from a checkpoint.
@@ -174,8 +184,8 @@ elif init_from == 'resume':
     for k in ['n_slayer', 'n_layer', 'n_head', 'n_embd', 'block_size', 'bias', 'vocab_size', 'aux_seer_loss', 'aux_rcausal_loss']:
         model_args[k] = checkpoint_model_args[k]
     # create the model
-    gptconf = GPTConfig(**model_args)
-    model = GPT(gptconf)
+    gptconf = config_class(**model_args)
+    model = model_class(gptconf)
     state_dict = checkpoint['model']
     # fix the keys of the state dictionary :(
     # honestly no idea how checkpoints sometimes get this prefix, have to debug more
@@ -328,21 +338,12 @@ while True:
             # I really dislike that this bloats the code and forces us to repeat code
             # looking at the source of that context manager, it just toggles this variable
             model.require_backward_grad_sync = (micro_step == gradient_accumulation_steps - 1)
-        with ctx:
-            logits, loss, micro_loss_tensor = model(X, Y)
-            micro_loss_dict = name_losses(micro_loss_tensor)
-            assert not torch.any(torch.isnan(loss))
-            loss = loss / gradient_accumulation_steps # scale the loss to account for gradient accumulation
-            assert not torch.any(torch.isnan(loss))
+
+        loss, micro_loss_tensor = model.compute_gradient(X, Y, gradient_accumulation_steps, ctx = ctx, scaler = scaler)
+        micro_loss_dict = name_losses(micro_loss_tensor, architecture)
+
         # immediately async prefetch next batch while model is doing the forward pass on the GPU
         X, Y = get_batch('train')
-        # if iter_num < 10:
-        #     print("Batch")
-        #     print(X)
-        #     print("y")
-        #     print(Y)
-        # backward pass, with gradient scaling if training in fp16
-        scaler.scale(loss).backward()
     # clip the gradient
     if grad_clip != 0.0:
         scaler.unscale_(optimizer)
