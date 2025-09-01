@@ -6,7 +6,7 @@ model_dir = "../../model_vol"
 data_dir = "../../model_vol/data_dir/pretrain"
 
 timestamp = datetime.now(ZoneInfo("America/Los_Angeles"))
-run_name = "16ntp_lichess " + str(timestamp)
+run_name = "12-4_mtp_lichess " + str(timestamp)
 
 out_dir = os.path.join(model_dir, run_name)
 eval_interval = 4000
@@ -28,13 +28,18 @@ batch_size = 50
 block_size = 320  # context of up to 1023 tokens (because dataset block size is 1024)
 
 # baby GPT model :)
-architecture = "gpt"
-n_layer = 16
+architecture = "mtp-gpt"
+k = 4
+discount_rate = 0.99
+n_layer = 12
 n_head = 8
 n_embd = 512
 dropout = 0.0 # for pretraining 0 is good, for finetuning try 0.1+
 bias = False # do we use bias inside LayerNorm and Linear layers?
 vocab_size = 1970
+
+# aux losses
+aux_seer_loss = False
 
 learning_rate = 3e-4
 max_iters = 600000

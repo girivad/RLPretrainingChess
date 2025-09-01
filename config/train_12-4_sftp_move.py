@@ -6,7 +6,7 @@ model_dir = "../../model_vol"
 data_dir = "../../model_vol/data_dir/pretrain"
 
 timestamp = datetime.now(ZoneInfo("America/Los_Angeles"))
-run_name = "16ntp_lichess " + str(timestamp)
+run_name = "12-4_sftp_lichess " + str(timestamp)
 
 out_dir = os.path.join(model_dir, run_name)
 eval_interval = 4000
@@ -27,9 +27,13 @@ gradient_accumulation_steps = 2
 batch_size = 50
 block_size = 320  # context of up to 1023 tokens (because dataset block size is 1024)
 
-# baby GPT model :)
-architecture = "gpt"
-n_layer = 16
+# baby SF-GPT model :)
+architecture = "sf-gpt"
+
+n_slayer = 4
+lamda = 0.5
+
+n_layer = 12
 n_head = 8
 n_embd = 512
 dropout = 0.0 # for pretraining 0 is good, for finetuning try 0.1+
