@@ -349,7 +349,7 @@ while True:
             # looking at the source of that context manager, it just toggles this variable
             model.require_backward_grad_sync = (micro_step == gradient_accumulation_steps - 1)
 
-        loss, micro_loss_tensor = model.compute_gradient(X, Y, gradient_accumulation_steps, ctx = ctx, scaler = scaler)
+        loss, micro_loss_tensor = model.module.compute_gradient(X, Y, gradient_accumulation_steps, ctx = ctx, scaler = scaler, ddp_model = model)
         micro_loss_dict = name_losses(micro_loss_tensor, architecture)
 
         # immediately async prefetch next batch while model is doing the forward pass on the GPU

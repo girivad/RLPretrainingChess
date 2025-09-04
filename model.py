@@ -119,9 +119,9 @@ class MLP(nn.Module):
 
     def __init__(self, config):
         super().__init__()
-        self.c_fc    = nn.Linear(config.n_embd, 4 * config.n_embd, bias=config.bias)
+        self.c_fc    = nn.Linear(config.n_embd, config.hidden_dim, bias=config.bias)
         self.gelu    = nn.GELU()
-        self.c_proj  = nn.Linear(4 * config.n_embd, config.n_embd, bias=config.bias)
+        self.c_proj  = nn.Linear(config.hidden_dim, config.n_embd, bias=config.bias)
         self.dropout = nn.Dropout(config.dropout)
 
     def forward(self, x):
@@ -195,6 +195,7 @@ class GPTConfig:
     n_layer: int = 12
     n_head: int = 12
     n_embd: int = 768
+    hidden_dim: int = 3072
     dropout: float = 0.0
     bias: bool = True # True: bias in Linears and LayerNorms, like GPT-2. False: a bit better and faster
     max_batch_size: int = 100
@@ -259,35 +260,44 @@ class GPT(nn.Module):
         elif isinstance(module, nn.Embedding):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
-    def forward(self, idx, targets = None, evaluate = False, batch_inf = False, start_pos = 0, kv_cache = False):
-        inference = targets is None
-        device = idx.device
-        b, t = idx.size()
+    def latent_forward(self, x, start_layer = 0, end_layer = 8, start_pos = 0, kv_cache = False):
+        device = x.device
+        t = x.size(1)
         assert t + start_pos <= self.config.block_size, f"Cannot forward sequence of length {start_pos}/{t}, block size is only {self.config.block_size}"
         pos = torch.arange(start_pos, t + start_pos, dtype=torch.long, device=device) # shape (t)
+
+        # forward the GPT model itself
+        if start_layer == 0:
+            tok_emb = self.transformer.wte(x) # token embeddings of shape (b, t, n_embd)
+            pos_emb = self.transformer.wpe(pos) # position embeddings of shape (t, n_embd)
+            emb = self.transformer.drop(tok_emb + pos_emb)
+            x = emb
+
+        for layer_idx, block in enumerate(self.transformer.h):
+            if layer_idx + 1 < start_layer or layer_idx >= end_layer:
+                continue
+            x = block(x, start_pos = start_pos, kv_cache = kv_cache)
+
+        return x
+
+    def forward(self, x, start_layer = 0, end_layer = 8, targets = None, evaluate = False, batch_inf = False, start_pos = 0, kv_cache = False):
+        inference = targets is None
 
         loss_tensor = torch.zeros((2, ))
 
         # forward the GPT model itself
-        tok_emb = self.transformer.wte(idx) # token embeddings of shape (b, t, n_embd)
-        pos_emb = self.transformer.wpe(pos) # position embeddings of shape (t, n_embd)
-        emb = self.transformer.drop(tok_emb + pos_emb)
+        x = self.latent_forward(x, start_layer = start_layer, end_layer = end_layer, start_pos = start_pos, kv_cache = kv_cache and inference and not batch_inf)
 
-        assert len(emb.size()) == 3, (emb.size())
+        if end_layer <= self.config.n_layer: # Latent: 0th layer is embedding, nth layer is latent, n + 1-th layer is decoded result.
+            return x
 
-        x = emb
-
-        for block in self.transformer.h:
-            x = block(x, start_pos = start_pos, kv_cache = kv_cache and inference and not batch_inf)
-            assert len(x.size()) == 3, (x.size())
         x = self.transformer.ln_f(x)
-        assert len(x.size()) == 3, (x.size())
 
         if inference and not batch_inf:
             try:
                 return self.lm_head(x[:, [-1], :]), None
             except Exception as e:
-                raise Exception(f"Error Unembedding: {e}. x_in: ({b}, {t}), emb: {emb.size()}, x: {x.size()}. Start Pos: {start_pos}")
+                raise Exception(f"Error Unembedding: {e}. x: {x.size()}. Start Pos: {start_pos}")
         elif inference:
             return self.lm_head(x), None
 
@@ -307,9 +317,12 @@ class GPT(nn.Module):
 
         return st_logits, loss, loss_tensor
 
-    def compute_gradient(self, X, Y, gradient_accumulation_steps, ctx = nullcontext(), scaler = None):
+    def compute_gradient(self, X, Y, gradient_accumulation_steps, ctx = nullcontext(), scaler = None, ddp_model = None):
+        if ddp_model is None:
+            ddp_model = self
+
         with ctx:
-            _, loss, micro_loss_tensor = self(X, Y)
+            _, loss, micro_loss_tensor = ddp_model(X, Y)
             loss = loss / gradient_accumulation_steps
 
         # backward pass, with gradient scaling if training in fp16
@@ -645,25 +658,11 @@ class SFGPT(GPT):
     
     def forward(self, idx, targets = None, evaluate = False, batch_inf = False, start_pos = 0, kv_cache = False):
         inference = targets is None
-        device = idx.device
-        b, t = idx.size()
-        assert t + start_pos <= self.config.block_size, f"Cannot forward sequence of length {start_pos}/{t}, block size is only {self.config.block_size}"
-        pos = torch.arange(start_pos, t + start_pos, dtype=torch.long, device=device) # shape (t)
-
         loss_tensor = torch.zeros((6, ))
 
         # forward the GPT model itself
-        tok_emb = self.transformer.wte(idx) # token embeddings of shape (b, t, n_embd)
-        pos_emb = self.transformer.wpe(pos) # position embeddings of shape (t, n_embd)
-        emb = self.transformer.drop(tok_emb + pos_emb)
-
-        assert len(emb.size()) == 3, (emb.size())
-
-        x = emb
-
-        for block in self.transformer.h:
-            x = block(x, start_pos = start_pos, kv_cache = kv_cache and inference and not batch_inf)
-            assert len(x.size()) == 3, (x.size())
+        emb = self.latent_forward(idx, start_layer = 0, end_layer = 0, start_pos = start_pos, kv_cache = False) # Only calculates embedding
+        x = self.latent_forward(emb, start_layer = 1, end_layer = self.config.n_layer, start_pos = start_pos, kv_cache = kv_cache and inference and not batch_inf)
         x = self.transformer.ln_f(x)
         assert len(x.size()) == 3, (x.size())
 
@@ -671,7 +670,7 @@ class SFGPT(GPT):
             try:
                 return self.lm_head(x[:, [-1], :]), None
             except Exception as e:
-                raise Exception(f"Error Unembedding: {e}. x_in: ({b}, {t}), emb: {emb.size()}, x: {x.size()}. Start Pos: {start_pos}")
+                raise Exception(f"Error Unembedding: {e}. x_in: ({idx.size()}), x: {x.size()}. Start Pos: {start_pos}")
         elif inference:
             return self.lm_head(x), None
 
@@ -684,7 +683,7 @@ class SFGPT(GPT):
         if evaluate:
             return st_logits, loss
 
-        h = self.seer_forward(emb, device = device)
+        h = self.seer_forward(emb, device = idx.device)
         se_logits = self.lm_head(h) # 1 : ctx_len
         loss = aux_seer_loss(st_logits, se_logits, idx, loss, loss_tensor, lamda = self.config.lamda)
         assert not torch.any(torch.isnan(loss))
@@ -765,36 +764,24 @@ class MTPGPT(GPT):
         
         return num_params
     
-    def forward(self, idx, targets = None, evaluate = False, batch_inf = False, start_pos = 0, kv_cache = False, k = 1):
+    def forward(self, x, start_layer = 0, end_layer = 8, targets = None, evaluate = False, batch_inf = False, start_pos = 0, kv_cache = False, k = 1):
         inference = targets is None
-        device = idx.device
-        b, t = idx.size()
-        assert t + start_pos <= self.config.block_size, f"Cannot forward sequence of length {start_pos}/{t}, block size is only {self.config.block_size}"
-        pos = torch.arange(start_pos, t + start_pos, dtype=torch.long, device=device) # shape (t)
-
         loss_tensor = torch.zeros((2, ))
 
         # forward the GPT model itself
-        tok_emb = self.transformer.wte(idx) # token embeddings of shape (b, t, n_embd)
-        pos_emb = self.transformer.wpe(pos) # position embeddings of shape (t, n_embd)
-        emb = self.transformer.drop(tok_emb + pos_emb)
+        x = self.latent_forward(x, start_layer = start_layer, end_layer = end_layer, start_pos = start_pos, kv_cache = kv_cache and inference and not batch_inf)
 
-        assert len(emb.size()) == 3, (emb.size())
+        if end_layer <= self.config.n_layer:
+            return x
 
-        x = emb
-
-        for block in self.transformer.h:
-            x = block(x, start_pos = start_pos, kv_cache = kv_cache and inference and not batch_inf)
-            assert len(x.size()) == 3, (x.size())
         x = self.heads[k](x)
         x = self.transformer.ln_f(x)
-        assert len(x.size()) == 3, (x.size())
 
         if inference and not batch_inf:
             try:
                 return self.lm_head(x[:, [-1], :]), None
             except Exception as e:
-                raise Exception(f"Error Unembedding: {e}. x_in: ({b}, {t}), emb: {emb.size()}, x: {x.size()}. Start Pos: {start_pos}")
+                raise Exception(f"Error Unembedding: {e}. x_in: ({x.size()}), x: {x.size()}. Start Pos: {start_pos}")
         elif inference:
             return self.lm_head(x), None
 
@@ -814,13 +801,16 @@ class MTPGPT(GPT):
 
         return st_logits, loss, loss_tensor
 
-    def compute_gradient(self, X, Y, gradient_accumulation_steps, ctx=nullcontext(), scaler=None):
+    def compute_gradient(self, X, Y, gradient_accumulation_steps, ctx=nullcontext(), scaler=None, ddp_model = None):
+        if ddp_model is None:
+            ddp_model = self
         loss_tensors = []
         total_loss = 0
 
+        trunk_latent = ddp_model(X, end_layer = self.config.n_layer, )
         for k in range(self.config.k):
             with ctx:
-                _, loss, micro_loss_tensor = self(X, Y, k = k)
+                _, loss, micro_loss_tensor = ddp_model(trunk_latent, Y, start_layer = self.config.n_layer, end_layer = self.config.n_layer + 1, k = k)
                 loss = loss / gradient_accumulation_steps
 
                 # Discount Future Losses
@@ -829,7 +819,7 @@ class MTPGPT(GPT):
 
                 # Loss Logging
                 loss_tensors.append(micro_loss_tensor)
-                total_loss = total_loss + loss
+                total_loss = total_loss + loss.clone().detach()
 
             # backward pass, with gradient scaling if training in fp16
             scaler.scale(loss).backward()
