@@ -45,8 +45,9 @@ def move_tokenize(cntnts, stoi, dtype, return_type = "np", pgn = True):
     for move in re.split(r"([; ])", cntnts):
         if len(move) == 0:
             continue
-        if move in " ;" and move in stoi:
-            tokens.append(stoi[move])
+        if move in " ;":
+            if move in stoi:
+                tokens.append(stoi[move])
             continue
 
         if not pgn:
