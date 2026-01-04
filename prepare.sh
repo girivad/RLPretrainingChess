@@ -1,1 +1,1 @@
-python3 prepare.py --dataset lichess_6gb.zip --out_dir ../../model_vol/data_dir/pretrain/ --tok_type move --tokenizer_path "./tokenizer/tokenizers/move_token.pkl"
+python3 prepare.py --dataset lichess_6gb.zip --out_dir ../../model_vol/data_dir/pretrain/ --tok_type move --tokenizer_path "./tokenizer/tokenizers/action_token.pkl"
