@@ -260,7 +260,9 @@ class GPT(nn.Module):
         elif isinstance(module, nn.Embedding):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
-    def latent_forward(self, x, start_layer = 0, end_layer = 8, start_pos = 0, kv_cache = False):
+    def latent_forward(self, x, start_layer = 0, end_layer = None, start_pos = 0, kv_cache = False):
+        if end_layer is None:
+            end_layer = self.config.n_layer + 1
         device = x.device
         t = x.size(1)
         assert t + start_pos <= self.config.block_size, f"Cannot forward sequence of length {start_pos}/{t}, block size is only {self.config.block_size}"
@@ -279,8 +281,11 @@ class GPT(nn.Module):
 
         return x
 
-    def forward(self, x, start_layer = 0, end_layer = 8, targets = None, evaluate = False, batch_inf = False, start_pos = 0, kv_cache = False):
+    def forward(self, x, start_layer = 0, end_layer = None, targets = None, evaluate = False, batch_inf = False, start_pos = 0, kv_cache = False):
         inference = targets is None
+
+        if end_layer is None:
+            end_layer = self.config.n_layer + 1
 
         loss_tensor = torch.zeros((2, ))
 
@@ -765,7 +770,7 @@ class MTPGPT(GPT):
         
         return num_params
     
-    def forward(self, x, start_layer = 0, end_layer = 8, targets = None, evaluate = False, batch_inf = False, start_pos = 0, kv_cache = False, k = 1):
+    def forward(self, x, start_layer = 0, end_layer = None, targets = None, evaluate = False, batch_inf = False, start_pos = 0, kv_cache = False, k = 1):
         """
             Forward pass for MTP-GPT.
 
@@ -788,6 +793,9 @@ class MTPGPT(GPT):
             """
         inference = targets is None
         loss_tensor = torch.zeros((2, ))
+
+        if end_layer is None:
+            end_layer = self.config.n_layer + 1
 
         # forward the GPT model itself
         x = self.latent_forward(x, start_layer = start_layer, end_layer = end_layer, start_pos = start_pos, kv_cache = kv_cache and inference and not batch_inf)
