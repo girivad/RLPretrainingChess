@@ -36,13 +36,12 @@ def test_gpt_forward_shapes(small_config, batch):
     config = GPTConfig(**small_config)
     model = GPT(config)
     X, Y = batch
-    
     # Full forward
-    logits, loss, loss_tensor = model(X, Y)
+    logits, loss, loss_tensor = model(X, targets = Y)
     assert logits.shape == (X.shape[0], X.shape[1], config.vocab_size)
     assert loss.ndim == 0  # scalar
     assert loss_tensor.shape == (2,)
-    assert not torch.isnan(loss)
+    assert not torch.any(torch.isnan(loss))
 
 def test_sfgpt_forward_shapes(small_config, batch):
     """Test SFGPT forward - would have caught the embeddings bug"""
@@ -51,7 +50,7 @@ def test_sfgpt_forward_shapes(small_config, batch):
     X, Y = batch
     
     # This would fail with the embeddings bug
-    logits, loss, loss_tensor = model(X, Y)
+    logits, loss, loss_tensor = model(X, targets = Y)
     assert logits.shape == (X.shape[0], X.shape[1], config.vocab_size)
     assert loss_tensor.shape == (6,)  # SFGPT has more loss terms
     assert not torch.isnan(loss)
@@ -59,10 +58,11 @@ def test_sfgpt_forward_shapes(small_config, batch):
 def test_mtpgpt_forward_shapes(small_config, batch):
     """Test MTPGPT forward"""
     config = MTPGPTConfig(**small_config, k=2, discount_rate=0.99)
+    print("Created MTP Config:", config)
     model = MTPGPT(config)
     X, Y = batch
-    
-    logits, loss, loss_tensor = model(X, Y, k=0)
+
+    logits, loss, loss_tensor = model(X, targets = Y, k=0)
     assert logits.shape == (X.shape[0], X.shape[1], config.vocab_size)
     assert not torch.isnan(loss)
 
@@ -128,7 +128,7 @@ def test_evaluation_mode(small_config, batch):
     model = GPT(config)
     X, Y = batch
     
-    logits, loss = model(X, Y, evaluate=True)
+    logits, loss = model(X, targets = Y, evaluate=True)
     assert logits.shape == (X.shape[0], X.shape[1], config.vocab_size)
     assert loss.ndim == 0
     assert not torch.isnan(loss)
@@ -145,7 +145,7 @@ def test_one_training_step(small_config, batch):
     X, Y = batch
     
     # Forward
-    logits, loss, _ = model(X, Y)
+    logits, loss, _ = model(X, targets = Y)
     
     # Backward
     loss.backward()

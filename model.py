@@ -234,7 +234,7 @@ class GPT(nn.Module):
         if num_params < 1e9:
             print("number of parameters in GPT: %.2fM" % (num_params/1e6,))
         else:
-            print("number of parameters in GPT: %.2fM" % (num_params/1e9,))
+            print("number of parameters in GPT: %.2fB" % (num_params/1e9,))
 
     def create_kv_cache(self, bsz, device):
         for blk in self.transformer.h:
@@ -605,7 +605,7 @@ class SFGPTConfig(GPTConfig):
 
 class SFGPT(GPT):
     def __init__(self, config: SFGPTConfig):
-        self.config = config
+        super().__init__(config)
         assert config.n_slayer > 0
         self.seer = nn.ModuleDict(
             dict(
@@ -622,8 +622,6 @@ class SFGPT(GPT):
                 fusion = MLP(config)
             )
         )
-
-        super().__init__(config)
 
         # init all weights (particularly the seer, here)
         self.apply(self._init_weights)
@@ -794,21 +792,20 @@ class SFGPT(GPT):
         mfu = flops_achieved / flops_promised
         return mfu
 
+@dataclass
 class MTPGPTConfig(GPTConfig):
     k: int = 5
     discount_rate: float = 0.99
 
 class MTPGPT(GPT):
     def __init__(self, config: MTPGPTConfig):
-        self.config = config
+        super().__init__(config)
         assert config.k > 0
         self.heads = nn.ModuleList(
             [
                 Block(config) for _ in range(config.k)
             ]
         )
-
-        super().__init__(config)
 
         self.apply(self._init_weights)
 
@@ -818,9 +815,9 @@ class MTPGPT(GPT):
         
         num_params = self.get_num_params()
         if num_params < 1e9:
-            print("number of parameters in {self.config.k}-MTP-GPT: %.2fM" % (num_params/1e6,))
+            print(f"number of parameters in {self.config.k}-MTP-GPT: %.2fM" % (num_params/1e6,))
         else:
-            print("number of parameters in {self.config.k}-MTP-GPT: %.2fB" % (num_params/1e9,))        
+            print(f"number of parameters in {self.config.k}-MTP-GPT: %.2fB" % (num_params/1e9,))        
 
     def get_num_params(self, non_embedding=True, train=True):
         num_params = super().get_num_params(non_embedding, train)
@@ -907,7 +904,7 @@ class MTPGPT(GPT):
             if k == self.config.k - 1 and hasattr(model, "require_backward_grad_sync"):
                 model.require_backward_grad_sync = grad_sync
             with ctx:
-                _, loss, micro_loss_tensor = model(trunk_latent, Y, start_layer = self.config.n_layer, end_layer = self.config.n_layer + 1, k = k)
+                _, loss, micro_loss_tensor = model(trunk_latent, targets = Y, start_layer = self.config.n_layer, end_layer = self.config.n_layer + 1, k = k)
                 loss = loss / gradient_accumulation_steps
 
                 # Discount Future Losses
@@ -919,7 +916,7 @@ class MTPGPT(GPT):
                 total_loss = total_loss + loss.clone().detach()
 
             # backward pass, with gradient scaling if training in fp16
-            scaler.scale(loss).backward()
+            scaler.scale(loss).backward(retain_graph = (k < self.config.k - 1))
 
             trunk_latent = trunk_latent[:, :-1]
             Y = Y[:, 1:]

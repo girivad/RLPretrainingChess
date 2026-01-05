@@ -7,5 +7,6 @@ mkdir openings
 wget -O openings/eco_openings.pgn https://storage.googleapis.com/searchless_chess/data/eco_openings.pgn 
 num_procs=$(python -c "import torch; print(torch.cuda.device_count());")
 mkdir pgn
-nvidia-smi
+nvidia-smi   
+torchrun --nproc_per_node=${num_procs} test_models.py
 torchrun --nproc_per_node=${num_procs} train.py $train_config
