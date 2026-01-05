@@ -191,7 +191,9 @@ elif init_from == 'resume':
     checkpoint_model_args = checkpoint['model_args']
     # force these config attributes to be equal otherwise we can't even resume training
     # the rest of the attributes (e.g. dropout) can stay as desired from command line
-    for k in ['n_slayer', 'n_layer', 'n_head', 'n_embd', 'block_size', 'bias', 'vocab_size', 'aux_seer_loss', 'aux_rcausal_loss']:
+    for k in ['n_slayer', 'lamda', 'n_layer', 'n_head', 'n_embd', 'block_size', 'bias', 'vocab_size', 'aux_seer_loss', 'aux_rcausal_loss', 'k', 'discount_rate']:
+        if k not in checkpoint_model_args:
+            continue
         model_args[k] = checkpoint_model_args[k]
     # create the model
     gptconf = config_class(**model_args)
@@ -288,7 +290,7 @@ while True:
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
 
-    # Additional Eval: Calculate Elo using default model parameters
+    # Potential Additional Eval: Calculate Elo using default model parameters
     # if iter_num % hifi_eval_interval == 0:
         # with torch.no_grad():
         #     elo, lw_bd, up_bd = estimate_elo(
