@@ -191,7 +191,7 @@ elif init_from == 'resume':
     checkpoint_model_args = checkpoint['model_args']
     # force these config attributes to be equal otherwise we can't even resume training
     # the rest of the attributes (e.g. dropout) can stay as desired from command line
-    for k in ['n_slayer', 'lamda', 'n_layer', 'n_head', 'n_embd', 'block_size', 'bias', 'vocab_size', 'aux_seer_loss', 'aux_rcausal_loss', 'k', 'discount_rate']:
+    for k in ['n_layer', 'n_head', 'n_embd', 'block_size', 'bias', 'vocab_size', 'n_slayer', 'lamda', 'k', 'discount_rate']:
         if k not in checkpoint_model_args:
             continue
         model_args[k] = checkpoint_model_args[k]
