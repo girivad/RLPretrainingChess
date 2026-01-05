@@ -243,9 +243,6 @@ class GPT(nn.Module):
     def get_num_params(self, non_embedding=True, train = True):
         """
         Return the number of parameters in the model.
-        For non-embedding count (default), the position embeddings get subtracted.
-        The token embeddings would too, except due to the parameter sharing these
-        params are actually used as weights in the final layer, so we include them.
         """
         n_params = sum(p.numel() for p in self.parameters())
         if non_embedding:
@@ -282,6 +279,30 @@ class GPT(nn.Module):
         return x
 
     def forward(self, x, start_layer = 0, end_layer = None, targets = None, evaluate = False, batch_inf = False, start_pos = 0, kv_cache = False):
+        """
+        Forward pass for the model.
+
+        Args:
+            x (torch.Tensor): Input tensor to the model.
+            start_layer (int, optional): The starting layer for the forward pass. Defaults to 0.
+            end_layer (int, optional): The ending layer for the forward pass. If None, defaults to the total number of layers + 1.
+            targets (torch.Tensor, optional): Target tensor for loss computation. If None, inference mode is assumed. Defaults to None.
+            evaluate (bool, optional): If True, returns logits and loss for evaluation. Defaults to False.
+            batch_inf (bool, optional): If True, enables batch inference mode. Defaults to False.
+            start_pos (int, optional): Starting position for the forward pass. Defaults to 0.
+            kv_cache (bool, optional): If True, enables key-value caching for inference. Defaults to False.
+
+        Returns:
+            Union[torch.Tensor, Tuple[torch.Tensor, None], Tuple[torch.Tensor, torch.Tensor], Tuple[torch.Tensor, torch.Tensor, torch.Tensor]]:
+                - If `end_layer` is less than or equal to the number of layers, returns the latent representation `x`.
+                - If in inference mode and `batch_inf` is False, returns the logits for the last token and None.
+                - If in inference mode and `batch_inf` is True, returns the logits for all tokens and None.
+                - If `evaluate` is True, returns the logits and the loss.
+                - Otherwise, returns the logits, the total loss, and a tensor containing individual loss components.
+
+        Raises:
+            Exception: If an error occurs during the unembedding process, an exception is raised with details about the error.
+        """
         inference = targets is None
 
         if end_layer is None:
@@ -662,13 +683,50 @@ class SFGPT(GPT):
         x = self.seer.fusion(x)
         return self.seer.ln_f(x)
     
-    def forward(self, idx, targets = None, evaluate = False, batch_inf = False, start_pos = 0, kv_cache = False):
+    def forward(self, x, start_layer = 0, end_layer = None, targets = None, evaluate = False, batch_inf = False, start_pos = 0, kv_cache = False):
+        """
+        Forward pass for the model.
+
+        Args:
+            x (torch.Tensor): Input tensor to the model.
+            start_layer (int, optional): The starting layer for the forward pass. Defaults to 0.
+            end_layer (int, optional): The ending layer for the forward pass. If None, defaults to the total number of layers + 1.
+            targets (torch.Tensor, optional): Target tensor for loss computation. If None, inference mode is assumed. Defaults to None.
+            evaluate (bool, optional): If True, returns logits and loss for evaluation. Defaults to False.
+            batch_inf (bool, optional): If True, enables batch inference mode. Defaults to False.
+            start_pos (int, optional): The starting position for positional encoding. Defaults to 0.
+            kv_cache (bool, optional): If True, enables key-value caching for faster inference. Defaults to False.
+        Returns:
+            Union[torch.Tensor, Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor]]]:
+                - If 'end_layer' is less than or equal to the number of layers, returns the latent representation 'x'.
+                - If inference and not batch_inf: Returns logits for the last token and None.
+                - If inference: Returns logits for all tokens and None.
+                - Otherwise: Returns logits, loss, and loss tensor.
+        Notes:
+            - The forward pass is divided into multiple stages:
+                1. Embedding computation using `latent_forward` with start_layer=0 and end_layer=0.
+                2. Forwarding through the transformer layers from start_layer=1 to end_layer.
+                3. If end_layer exceeds the number of layers, applies layer normalization and computes logits.
+            - Loss computation includes:
+                1. Cross-entropy loss for the standard logits.
+                2. Auxiliary loss using Seer logits.
+                3. Z-loss regularization for both standard and Seer logits.
+        """
+                
         inference = targets is None
+
+        if end_layer is None:
+            end_layer = self.config.n_layer + 1
+
         loss_tensor = torch.zeros((6, ))
 
         # forward the GPT model itself
-        emb = self.latent_forward(idx, start_layer = 0, end_layer = 0, start_pos = start_pos, kv_cache = False) # Only calculates embedding
-        x = self.latent_forward(emb, start_layer = 1, end_layer = self.config.n_layer, start_pos = start_pos, kv_cache = kv_cache and inference and not batch_inf)
+        emb = self.latent_forward(x, start_layer = 0, end_layer = 0, start_pos = start_pos, kv_cache = False) # Only calculates embedding
+        x = self.latent_forward(emb, start_layer = 1, end_layer = end_layer, start_pos = start_pos, kv_cache = kv_cache and inference and not batch_inf)
+        
+        if end_layer <= self.config.n_layer:
+            return x
+        
         x = self.transformer.ln_f(x)
         assert len(x.size()) == 3, (x.size())
 
@@ -676,7 +734,7 @@ class SFGPT(GPT):
             try:
                 return self.lm_head(x[:, [-1], :]), None
             except Exception as e:
-                raise Exception(f"Error Unembedding: {e}. x_in: ({idx.size()}), x: {x.size()}. Start Pos: {start_pos}")
+                raise Exception(f"Error Unembedding: {e}. x_in: ({x.size()}), x: {x.size()}. Start Pos: {start_pos}")
         elif inference:
             return self.lm_head(x), None
 
@@ -689,9 +747,9 @@ class SFGPT(GPT):
         if evaluate:
             return st_logits, loss
 
-        h = self.seer_forward(emb, device = idx.device)
+        h = self.seer_forward(emb, device = x.device)
         se_logits = self.lm_head(h) # 1 : ctx_len
-        loss = aux_seer_loss(st_logits, se_logits, idx, loss, loss_tensor, lamda = self.config.lamda)
+        loss = aux_seer_loss(st_logits, se_logits, x, loss, loss_tensor, lamda = self.config.lamda)
         assert not torch.any(torch.isnan(loss))
 
         st_z = z_loss(st_logits)
@@ -777,7 +835,7 @@ class MTPGPT(GPT):
             Arguments:
                 x: Input tensor of shape (batch_size, sequence_length) if using start_layer = 0 else (batch_size, sequence_length, embedding_dim) [processes intermediate latents].
                 start_layer: The starting layer index for the forward pass.
-                end_layer: The ending layer index for the forward pass.
+                end_layer: The ending layer index for the forward pass. If None, defaults to the total number of layers + 1.
                 targets: Target tensor for loss computation of shape (batch_size, sequence_length)
                 evaluate: Boolean flag indicating evaluation mode.
                 batch_inf: Boolean flag for batch inference mode (that is, generate predictions for all tokens in the sequence in parallel - used during GRPO).
@@ -786,11 +844,12 @@ class MTPGPT(GPT):
                 k: The head index to use for the final decoding layer.
             
             Returns:
-                If inference mode (targets is None):
-                    Returns the logits tensor of shape (batch_size, sequence_length, vocab_size) and None.
-                If training mode:
-                    Returns the logits tensor, total loss, and a loss tensor containing individual loss components.
-            """
+                Union[torch.Tensor, Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor]]]:
+                - If 'end_layer' is less than or equal to the number of layers, returns the latent representation 'x'.
+                - If in inference mode and not batch_inf, returns logits for the last token and None.
+                - If in inference mode and batch_inf, returns logits for all tokens and None.
+                - Otherwise, returns logits, loss, and loss tensor.
+        """
         inference = targets is None
         loss_tensor = torch.zeros((2, ))
 
@@ -835,8 +894,15 @@ class MTPGPT(GPT):
         loss_tensors = []
         total_loss = 0
 
-        trunk_latent = model(X, end_layer = self.config.n_layer)
+        with ctx:
+            trunk_latent = model(X, end_layer = self.config.n_layer)
+
+        grad_sync = model.require_backward_grad_sync
+        model.require_backward_grad_sync = False
+
         for k in range(self.config.k):
+            if k == self.config.k - 1:
+                model.require_backward_grad_sync = grad_sync
             with ctx:
                 _, loss, micro_loss_tensor = model(trunk_latent, Y, start_layer = self.config.n_layer, end_layer = self.config.n_layer + 1, k = k)
                 loss = loss / gradient_accumulation_steps
