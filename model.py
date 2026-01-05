@@ -270,8 +270,7 @@ class GPT(nn.Module):
         if start_layer == 0:
             tok_emb = self.transformer.wte(x) # token embeddings of shape (b, t, n_embd)
             pos_emb = self.transformer.wpe(pos) # position embeddings of shape (t, n_embd)
-            emb = self.transformer.drop(tok_emb + pos_emb)
-            x = emb
+            x = self.transformer.drop(tok_emb + pos_emb)
 
         for layer_idx, block in enumerate(self.transformer.h):
             if layer_idx + 1 < start_layer or layer_idx >= end_layer:
@@ -318,11 +317,13 @@ class GPT(nn.Module):
         return st_logits, loss, loss_tensor
 
     def compute_gradient(self, X, Y, gradient_accumulation_steps, ctx = nullcontext(), scaler = None, ddp_model = None):
+        model = ddp_model
         if ddp_model is None:
-            ddp_model = self
+            # Not using DDP
+            model = self
 
         with ctx:
-            _, loss, micro_loss_tensor = ddp_model(X, Y)
+            _, loss, micro_loss_tensor = model(X, Y)
             loss = loss / gradient_accumulation_steps
 
         # backward pass, with gradient scaling if training in fp16
@@ -765,6 +766,26 @@ class MTPGPT(GPT):
         return num_params
     
     def forward(self, x, start_layer = 0, end_layer = 8, targets = None, evaluate = False, batch_inf = False, start_pos = 0, kv_cache = False, k = 1):
+        """
+            Forward pass for MTP-GPT.
+
+            Arguments:
+                x: Input tensor of shape (batch_size, sequence_length) if using start_layer = 0 else (batch_size, sequence_length, embedding_dim) [processes intermediate latents].
+                start_layer: The starting layer index for the forward pass.
+                end_layer: The ending layer index for the forward pass.
+                targets: Target tensor for loss computation of shape (batch_size, sequence_length)
+                evaluate: Boolean flag indicating evaluation mode.
+                batch_inf: Boolean flag for batch inference mode (that is, generate predictions for all tokens in the sequence in parallel - used during GRPO).
+                start_pos: The starting position index for positional embeddings.
+                kv_cache: Boolean flag indicating whether to use key-value caching for attention.
+                k: The head index to use for the final decoding layer.
+            
+            Returns:
+                If inference mode (targets is None):
+                    Returns the logits tensor of shape (batch_size, sequence_length, vocab_size) and None.
+                If training mode:
+                    Returns the logits tensor, total loss, and a loss tensor containing individual loss components.
+            """
         inference = targets is None
         loss_tensor = torch.zeros((2, ))
 
@@ -802,15 +823,14 @@ class MTPGPT(GPT):
         return st_logits, loss, loss_tensor
 
     def compute_gradient(self, X, Y, gradient_accumulation_steps, ctx=nullcontext(), scaler=None, ddp_model = None):
-        if ddp_model is None:
-            ddp_model = self
+        model = ddp_model or self
         loss_tensors = []
         total_loss = 0
 
-        trunk_latent = ddp_model(X, end_layer = self.config.n_layer, )
+        trunk_latent = model(X, end_layer = self.config.n_layer)
         for k in range(self.config.k):
             with ctx:
-                _, loss, micro_loss_tensor = ddp_model(trunk_latent, Y, start_layer = self.config.n_layer, end_layer = self.config.n_layer + 1, k = k)
+                _, loss, micro_loss_tensor = model(trunk_latent, Y, start_layer = self.config.n_layer, end_layer = self.config.n_layer + 1, k = k)
                 loss = loss / gradient_accumulation_steps
 
                 # Discount Future Losses
@@ -824,7 +844,7 @@ class MTPGPT(GPT):
             # backward pass, with gradient scaling if training in fp16
             scaler.scale(loss).backward()
 
-            X = X[:, :-1]
+            trunk_latent = trunk_latent[:, :-1]
             Y = Y[:, 1:]
         
         return total_loss, torch.cat(loss_tensors)
