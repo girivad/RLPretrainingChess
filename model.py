@@ -683,12 +683,12 @@ class SFGPT(GPT):
         x = self.seer.fusion(x)
         return self.seer.ln_f(x)
     
-    def forward(self, x, start_layer = 0, end_layer = None, targets = None, evaluate = False, batch_inf = False, start_pos = 0, kv_cache = False):
+    def forward(self, input, start_layer = 0, end_layer = None, targets = None, evaluate = False, batch_inf = False, start_pos = 0, kv_cache = False):
         """
         Forward pass for the model.
 
         Args:
-            x (torch.Tensor): Input tensor to the model.
+            input (torch.Tensor): Input tensor to the model.
             start_layer (int, optional): The starting layer for the forward pass. Defaults to 0.
             end_layer (int, optional): The ending layer for the forward pass. If None, defaults to the total number of layers + 1.
             targets (torch.Tensor, optional): Target tensor for loss computation. If None, inference mode is assumed. Defaults to None.
@@ -720,13 +720,15 @@ class SFGPT(GPT):
 
         loss_tensor = torch.zeros((6, ))
 
+        assert start_layer == 0 # To keep things simple, requires inputs to be token ids.
+
         # forward the GPT model itself
-        emb = self.latent_forward(x, start_layer = 0, end_layer = 0, start_pos = start_pos, kv_cache = False) # Only calculates embedding
+        emb = self.latent_forward(input, start_layer = 0, end_layer = 0, start_pos = start_pos, kv_cache = False) # Only calculates embedding
         x = self.latent_forward(emb, start_layer = 1, end_layer = end_layer, start_pos = start_pos, kv_cache = kv_cache and inference and not batch_inf)
-        
+
         if end_layer <= self.config.n_layer:
             return x
-        
+
         x = self.transformer.ln_f(x)
         assert len(x.size()) == 3, (x.size())
 
@@ -749,7 +751,7 @@ class SFGPT(GPT):
 
         h = self.seer_forward(emb, device = x.device)
         se_logits = self.lm_head(h) # 1 : ctx_len
-        loss = aux_seer_loss(st_logits, se_logits, x, loss, loss_tensor, lamda = self.config.lamda)
+        loss = aux_seer_loss(st_logits, se_logits, input, loss, loss_tensor, lamda = self.config.lamda)
         assert not torch.any(torch.isnan(loss))
 
         st_z = z_loss(st_logits)
@@ -897,11 +899,12 @@ class MTPGPT(GPT):
         with ctx:
             trunk_latent = model(X, end_layer = self.config.n_layer)
 
-        grad_sync = model.require_backward_grad_sync
-        model.require_backward_grad_sync = False
+        if hasattr(model, "require_backward_grad_sync"):
+            grad_sync = model.require_backward_grad_sync
+            model.require_backward_grad_sync = False
 
         for k in range(self.config.k):
-            if k == self.config.k - 1:
+            if k == self.config.k - 1 and hasattr(model, "require_backward_grad_sync"):
                 model.require_backward_grad_sync = grad_sync
             with ctx:
                 _, loss, micro_loss_tensor = model(trunk_latent, Y, start_layer = self.config.n_layer, end_layer = self.config.n_layer + 1, k = k)
