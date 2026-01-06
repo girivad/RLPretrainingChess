@@ -244,7 +244,7 @@ def estimate_loss():
         for k in range(eval_iters):
             X, Y = get_batch(split)
             with ctx:
-                logits, loss = model(X, Y, evaluate = True)
+                logits, loss = model(X, targets = Y, evaluate = True)
             losses[k] = loss.item()
         out[split] = losses.mean()
     model.train()

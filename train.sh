@@ -1,6 +1,6 @@
 #!/bin/bash
 train_config=$1
-pip install torch numpy transformers datasets tiktoken wandb tqdm tzdata chess --no-cache-dir -q
+pip install torch numpy transformers datasets tiktoken wandb tqdm tzdata chess pytest --no-cache-dir -q
 bash players/install_stockfish.sh
 bash setup_bayeselo.sh
 mkdir openings

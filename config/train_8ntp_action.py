@@ -25,7 +25,7 @@ wandb_run_name = run_name
 dataset = data_dir
 gradient_accumulation_steps = 2
 batch_size = 50
-block_size = 320  # context of up to 1023 tokens (because dataset block size is 1024)
+block_size = 160  # context of up to 1023 tokens (because dataset block size is 1024)
 
 tok_type = "action"
 tokenizer_path = "./tokenizer/tokenizers/action_token.pkl"

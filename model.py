@@ -349,7 +349,7 @@ class GPT(nn.Module):
             model = self
 
         with ctx:
-            _, loss, micro_loss_tensor = model(X, Y)
+            _, loss, micro_loss_tensor = model(X, targets = Y)
             loss = loss / gradient_accumulation_steps
 
         # backward pass, with gradient scaling if training in fp16
