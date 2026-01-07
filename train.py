@@ -227,6 +227,11 @@ checkpoint = None # free up memory
 if compile:
     print("compiling the model... (takes a ~minute)")
     unoptimized_model = model
+
+    if architecture == "mtp-gpt":
+        # Disabling Donated Buffer Optimizations for k-MTP GPT model
+        torch._functorch.config.donated_buffer = False
+
     model = torch.compile(model) # requires PyTorch 2.0
 
 # wrap model into DDP container
