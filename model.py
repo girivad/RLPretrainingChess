@@ -12,6 +12,7 @@ import inspect
 from dataclasses import dataclass
 
 import torch
+from torch import autograd
 import torch.nn as nn
 from torch.nn import functional as F
 from torch import logsumexp
@@ -895,16 +896,19 @@ class MTPGPT(GPT):
 
         with ctx:
             trunk_latent = model(X, end_layer = self.config.n_layer)
+            trunk_latent_k = trunk_latent
 
         if hasattr(model, "require_backward_grad_sync"):
             grad_sync = model.require_backward_grad_sync
             model.require_backward_grad_sync = False
 
+        later_params = [p for ps in [self.heads[k].parameters(), self.transformer.ln_f.parameters(), self.lm_head.parameters()] for p in ps]
+
         for k in range(self.config.k):
             if k == self.config.k - 1 and hasattr(model, "require_backward_grad_sync"):
                 model.require_backward_grad_sync = grad_sync
             with ctx:
-                _, loss, micro_loss_tensor = model(trunk_latent, targets = Y, start_layer = self.config.n_layer, end_layer = self.config.n_layer + 1, k = k)
+                _, loss, micro_loss_tensor = model(trunk_latent_k, targets = Y, start_layer = self.config.n_layer, end_layer = self.config.n_layer + 1, k = k)
                 loss = loss / gradient_accumulation_steps
 
                 # Discount Future Losses
@@ -916,11 +920,13 @@ class MTPGPT(GPT):
                 total_loss = total_loss + loss.clone().detach()
 
             # backward pass, with gradient scaling if training in fp16
-            scaler.scale(loss).backward(retain_graph = (k < self.config.k - 1))
+            autograd.backward(scaler.scale(total_loss), inputs = (trunk_latent, *later_params), retain_graph = (k < self.config.k - 1), create_graph = False)
 
-            trunk_latent = trunk_latent[:, :-1]
+            trunk_latent_k = trunk_latent_k[:, :-1]
             Y = Y[:, 1:]
-        
+
+        trunk_latent.backward(trunk_latent.grad)
+
         return total_loss, torch.cat(loss_tensors)
 
     def crop_block_size(self, block_size):
