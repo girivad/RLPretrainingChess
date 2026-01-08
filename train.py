@@ -248,7 +248,7 @@ def estimate_loss():
         for k in range(eval_iters):
             X, Y = get_batch(split)
             with ctx:
-                logits, loss = model(X, targets = Y, evaluate = True)
+                _, loss = model(X, targets = Y, evaluate = True)
             losses[k] = loss.item()
         out[split] = losses.mean()
     model.train()
@@ -341,6 +341,7 @@ while True:
                     os.mkdir(ckpt_dir)
                 print(f"saving checkpoint to {ckpt_dir}")
                 torch.save(checkpoint, os.path.join(ckpt_dir, 'ckpt.pt'))
+    
     if iter_num == 0 and eval_only:
         break
 

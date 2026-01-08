@@ -29,14 +29,27 @@ def pack(ds, blk_size = 1024, dtype = c_dtype):
         blk += ex_ids[:rlen]
 
         if len(blk) == blk_size:
-            yield {"ids": np.array(blk, dtype = dtype), "len": blk_size}
+            yield {
+                "ids": np.array(blk, dtype = dtype), 
+                "len": blk_size
+            }
             blk = []
+
+def map_outcome(result):
+  if result == "1-0":
+    return 1
+  if result == "1/2-1/2":
+    return 0
+  if result == "0-1":
+    return -1   
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--dataset", type = str, required = True)
 parser.add_argument("--out_dir", default = os.path.dirname(__file__), type = str)
 parser.add_argument("--tok_type", type = str, required = True)
 parser.add_argument("--tokenizer_path", type = str, default = "./data/lichess_hf_dataset/meta.pkl")
+parser.add_argument("--pack", action = "store_true", help = "Whether to pack sequences into blocks", default = "store_true")
+parser.add_argument("--include_outcomes", action = "store_true", help = "Whether to create a corresponding outcomes file", default = "store_false")
 args = parser.parse_args()
 
 if __name__ == "__main__":
@@ -47,13 +60,19 @@ if __name__ == "__main__":
     # Load the dataset
     dataset = load_dataset(dataset_path, data_files = file_path, split = "train")
 
+    if args.include_outcomes:
+        dataset = dataset.filter(
+           lambda example: example["Result"] != "*", 
+           num_proc = num_proc
+        )
+
     # by default only contains the 'train' split, so create a test split
     split_dataset = dataset.train_test_split(
         test_size=0.01, seed=2357, shuffle=True
     )
     split_dataset["val"] = split_dataset.pop("test")  # rename the test split to val
 
-    # this results in:
+    # this results in the following from lichess_6gb:
     # >>> split_dataset
     # DatasetDict({
     #     train: Dataset({
@@ -82,49 +101,64 @@ if __name__ == "__main__":
     #         break
     # print(stoi)
 
-    column_name = "transcript"
+    content_name = "transcript"
 
     def process(example):
         assert tokenizer is not None
-        assert example[column_name][0] != ";" # Shouldn't be doubling the Start-Of-Game symbol.
-        ids = tokenizer(";" + example[column_name], return_type = "np")
+        assert example[content_name][0] != ";" # Shouldn't be doubling the Start-Of-Game symbol.
+        ids = tokenizer(";" + example[content_name], return_type = "np")
         out = {"ids": ids, "len": len(ids)}
+        if args.include_outcomes:
+            outcome = map_outcome(example["Result"])
+            out["outcomes"] = np.array([outcome] * len(ids), dtype = np.int8)
         return out
 
     # tokenize the dataset
     tokenized = split_dataset.map(
         process,
-        remove_columns=[column_name],
+        remove_columns=[content_name],
         desc="tokenizing the splits",
         num_proc=num_proc,
     )
 
-    for split in tokenized.keys():
-        def split_pack():
-            yield from pack(tokenized[split], dtype = dtype)
-        tokenized[split] = Dataset.from_generator(
-            split_pack
-        )
+    if args.pack:
+        for split in tokenized.keys():
+            def split_pack():
+                yield from pack(tokenized[split], dtype = dtype)
+            tokenized[split] = Dataset.from_generator(
+                split_pack
+            )
 
     # concatenate all the ids in each dataset into one large file we can use for training
     for split, dset in tokenized.items():
         arr_len = np.sum(dset["len"], dtype=np.uint64)
         print(f"{split} has {arr_len} tokens")
-        filename = os.path.join(args.out_dir, f"{split}.bin")
+        
+        filename = os.path.join(args.out_dir, f"{file_path.replace(".zip", "")}_{split}.bin")
+        if args.include_outcome:
+            outcomes_filename = os.path.join(args.out_dir, f"{file_path.replace('.zip', '')}_{split}_outcomes.bin")
+            outcomes_dtype = np.int8
+        
         arr = np.memmap(filename, dtype=dtype, mode="w+", shape=(arr_len,))
+        if args.include_outcome:
+            outcomes = np.memmap(outcomes_filename, dtype=outcomes_dtype, mode="w+", shape=(arr_len, ))
         print(arr.shape)
+        
         total_batches = 1024
-
         idx = 0
+
         for batch_idx in tqdm(range(total_batches), desc=f"writing {filename}"):
             # Batch together samples for faster write
             batch = dset.shard(
                 num_shards=total_batches, index=batch_idx, contiguous=True
             ).with_format("numpy")
 
-            arr_batch = np.concatenate(batch["ids"])
-
             # Write into mmap
+            arr_batch = np.concatenate(batch["ids"])
             arr[idx : idx + len(arr_batch)] = arr_batch
+
+            if args.include_outcome:
+                outcomes[idx : idx + len(arr_batch)] = np.concatenate(batch["outcomes"])
+
             idx += len(arr_batch)
         arr.flush()
