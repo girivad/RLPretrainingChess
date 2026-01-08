@@ -228,16 +228,15 @@ if compile:
     print("compiling the model... (takes a ~minute)")
     unoptimized_model = model
 
-    if architecture == "mtp-gpt":
-        # Disabling Donated Buffer Optimizations for k-MTP GPT model
-        torch._functorch.config.donated_buffer = False
+    # if architecture == "mtp-gpt":
+    #     # Disabling Donated Buffer Optimizations for k-MTP GPT model
+    #     torch._functorch.config.donated_buffer = False
 
     model = torch.compile(model) # requires PyTorch 2.0
 
 # wrap model into DDP container
 if ddp:
-    model = DDP(model, device_ids=[ddp_local_rank], find_unused_parameters = True)
-    model._set_static_graph()
+    model = DDP(model, device_ids=[ddp_local_rank])
 
 # helps estimate an arbitrarily accurate loss over either split using many batches
 @torch.no_grad()

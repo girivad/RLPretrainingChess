@@ -896,7 +896,7 @@ class MTPGPT(GPT):
 
         with ctx:
             trunk_latent = model(X, end_layer = self.config.n_layer)
-            trunk_latent.requires_grad_(True)
+            # trunk_latent.requires_grad_(True)
             trunk_latent_k = trunk_latent
 
         if hasattr(model, "require_backward_grad_sync"):
@@ -905,29 +905,33 @@ class MTPGPT(GPT):
 
         later_params = [p for ps in [self.transformer.ln_f.parameters(), self.lm_head.parameters()] for p in ps]
 
+        loss = 0
+
         for k in range(self.config.k):
             if k == self.config.k - 1 and hasattr(model, "require_backward_grad_sync"):
                 model.require_backward_grad_sync = grad_sync
             with ctx:
-                _, loss, micro_loss_tensor = model(trunk_latent_k, targets = Y, start_layer = self.config.n_layer, end_layer = self.config.n_layer + 1, k = k)
-                loss = loss / gradient_accumulation_steps
+                _, k_loss, micro_loss_tensor = model(trunk_latent_k, targets = Y, start_layer = self.config.n_layer, end_layer = self.config.n_layer + 1, k = k)
+                k_loss = k_loss / gradient_accumulation_steps
 
                 # Discount Future Losses
-                loss = loss * (self.config.discount_rate) ** k
+                k_loss = k_loss * (self.config.discount_rate) ** k
                 micro_loss_tensor = micro_loss_tensor * (self.config.discount_rate) ** k
 
                 # Loss Logging
                 loss_tensors.append(micro_loss_tensor)
-                total_loss = total_loss + loss.clone().detach()
+                total_loss = total_loss + k_loss.clone().detach()
+                loss = loss + k_loss
 
             # backward pass, with gradient scaling if training in fp16 
-            autograd.backward(scaler.scale(loss), inputs = (trunk_latent, *([p for p in self.heads[k].parameters()] + later_params)), retain_graph = (k < self.config.k - 1), create_graph = False)
+            # autograd.backward(scaler.scale(loss)) #, inputs = (trunk_latent, *([p for p in self.heads[k].parameters()] + later_params)), retain_graph = (k < self.config.k - 1), create_graph = False)
 
             trunk_latent_k = trunk_latent_k[:, :-1]
             Y = Y[:, 1:]
 
-        trunk_latent.backward(trunk_latent.grad)
-        trunk_latent.grad.zero_()
+        scaler.scale(loss).backward()
+        # trunk_latent.backward(trunk_latent.grad)
+        # trunk_latent.grad.zero_()
 
         return total_loss, torch.cat(loss_tensors)
 
