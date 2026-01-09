@@ -48,7 +48,9 @@ parser.add_argument("--dataset", type = str, required = True)
 parser.add_argument("--out_dir", default = os.path.dirname(__file__), type = str)
 parser.add_argument("--tok_type", type = str, required = True)
 parser.add_argument("--tokenizer_path", type = str, default = "./data/lichess_hf_dataset/meta.pkl")
+parser.add_argument("--block_size", type = int, default = 1024)
 parser.add_argument("--pack", action = "store_true", help = "Whether to pack sequences into blocks", default = "store_true")
+parser.add_argument("--pad_to_block_size", action = "store_true", help = "Whether to pad sequences to block size", default = "store_false")
 parser.add_argument("--include_outcomes", action = "store_true", help = "Whether to create a corresponding outcomes file", default = "store_false")
 args = parser.parse_args()
 
@@ -103,14 +105,43 @@ if __name__ == "__main__":
 
     content_name = "transcript"
 
+    if args.include_outcomes:
+        outcomes_dtype = np.int8
+
     def process(example):
         assert tokenizer is not None
         assert example[content_name][0] != ";" # Shouldn't be doubling the Start-Of-Game symbol.
         ids = tokenizer(";" + example[content_name], return_type = "np")
         out = {"ids": ids, "len": len(ids)}
+
         if args.include_outcomes:
             outcome = map_outcome(example["Result"])
-            out["outcomes"] = np.array([outcome] * len(ids), dtype = np.int8)
+            out["outcomes"] = np.array([outcome] * out["len"], dtype = outcomes_dtype)
+
+        if args.pad_to_block_size:
+            out["ids"] = np.concatenate(
+                [
+                    out["ids"], 
+                    np.array(
+                        [
+                            int(tokenizer(";")[0])
+                        ] * (args.block_size - out["len"]), 
+                        dtype = dtype
+                    )
+                ]
+            )
+
+            if args.include_outcomes:
+                out["outcomes"] = np.concatenate(
+                    [
+                        out["outcomes"], 
+                        np.array(
+                            [np.nan] * (args.block_size - out["len"]), 
+                            dtype = outcomes_dtype
+                        )
+                    ]
+                )
+
         return out
 
     # tokenize the dataset
@@ -124,7 +155,7 @@ if __name__ == "__main__":
     if args.pack:
         for split in tokenized.keys():
             def split_pack():
-                yield from pack(tokenized[split], dtype = dtype)
+                yield from pack(tokenized[split], blk_size = args.block_size, dtype = dtype)
             tokenized[split] = Dataset.from_generator(
                 split_pack
             )
@@ -137,7 +168,6 @@ if __name__ == "__main__":
         filename = os.path.join(args.out_dir, f"{file_path.replace(".zip", "")}_{split}.bin")
         if args.include_outcome:
             outcomes_filename = os.path.join(args.out_dir, f"{file_path.replace('.zip', '')}_{split}_outcomes.bin")
-            outcomes_dtype = np.int8
         
         arr = np.memmap(filename, dtype=dtype, mode="w+", shape=(arr_len,))
         if args.include_outcome:

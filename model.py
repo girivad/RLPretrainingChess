@@ -298,8 +298,8 @@ class GPT(nn.Module):
                 - If `end_layer` is less than or equal to the number of layers, returns the latent representation `x`.
                 - If in inference mode and `batch_inf` is False, returns the logits for the last token and None.
                 - If in inference mode and `batch_inf` is True, returns the logits for all tokens and None.
-                - If `evaluate` is True, returns the logits and the loss.
-                - Otherwise, returns the logits, the total loss, and a tensor containing individual loss components.
+                - If `evaluate` is True, returns the logits and the language modeling loss.
+                - Otherwise, returns the logits, the total loss (includes aux losses), and a tensor containing individual loss components.
 
         Raises:
             Exception: If an error occurs during the unembedding process, an exception is raised with details about the error.
@@ -896,36 +896,42 @@ class MTPGPT(GPT):
 
         with ctx:
             trunk_latent = model(X, end_layer = self.config.n_layer)
+            # trunk_latent.requires_grad_(True)
             trunk_latent_k = trunk_latent
 
         if hasattr(model, "require_backward_grad_sync"):
             grad_sync = model.require_backward_grad_sync
             model.require_backward_grad_sync = False
 
-        later_params = [p for ps in [self.heads[k].parameters(), self.transformer.ln_f.parameters(), self.lm_head.parameters()] for p in ps]
+        later_params = [p for ps in [self.transformer.ln_f.parameters(), self.lm_head.parameters()] for p in ps]
+
+        loss = 0
 
         for k in range(self.config.k):
             if k == self.config.k - 1 and hasattr(model, "require_backward_grad_sync"):
                 model.require_backward_grad_sync = grad_sync
             with ctx:
-                _, loss, micro_loss_tensor = model(trunk_latent_k, targets = Y, start_layer = self.config.n_layer, end_layer = self.config.n_layer + 1, k = k)
-                loss = loss / gradient_accumulation_steps
+                _, k_loss, micro_loss_tensor = model(trunk_latent_k, targets = Y, start_layer = self.config.n_layer, end_layer = self.config.n_layer + 1, k = k)
+                k_loss = k_loss / gradient_accumulation_steps
 
                 # Discount Future Losses
-                loss = loss * (self.config.discount_rate) ** k
+                k_loss = k_loss * (self.config.discount_rate) ** k
                 micro_loss_tensor = micro_loss_tensor * (self.config.discount_rate) ** k
 
                 # Loss Logging
                 loss_tensors.append(micro_loss_tensor)
-                total_loss = total_loss + loss.clone().detach()
+                total_loss = total_loss + k_loss.clone().detach()
+                loss = loss + k_loss
 
-            # backward pass, with gradient scaling if training in fp16
-            autograd.backward(scaler.scale(total_loss), inputs = (trunk_latent, *later_params), retain_graph = (k < self.config.k - 1), create_graph = False)
+            # backward pass, with gradient scaling if training in fp16 
+            # autograd.backward(scaler.scale(loss)) #, inputs = (trunk_latent, *([p for p in self.heads[k].parameters()] + later_params)), retain_graph = (k < self.config.k - 1), create_graph = False)
 
             trunk_latent_k = trunk_latent_k[:, :-1]
             Y = Y[:, 1:]
 
-        trunk_latent.backward(trunk_latent.grad)
+        scaler.scale(loss).backward()
+        # trunk_latent.backward(trunk_latent.grad)
+        # trunk_latent.grad.zero_()
 
         return total_loss, torch.cat(loss_tensors)
 
@@ -978,3 +984,155 @@ def name_losses(loss_tensor, architecture):
     return {
         loss_names[idx]: loss_tensor[idx].item() for idx in range(loss_tensor.size(0))
     }
+
+@dataclass
+class ProbeHeadConfig:
+    n_embd: int
+    n_classes: int
+    task: str = "classification" # Options: classification, regression
+    architecture: str = "linear" # Options: linear, transformer+linear
+
+class ProbeHead(nn.Module):
+    def __init__(self, config: ProbeHeadConfig, base_config: GPTConfig):
+        super().__init__()
+        self.config = config
+
+        head_layers = []
+
+        for layer in config.architecture.split("+")[:-1]:
+            if layer == "transformer":
+                head_layers.append(Block(base_config))
+            elif layer == "linear":
+                head_layers.append(nn.Linear(config.n_embd, config.n_embd))
+        
+        if config.architecture.split("+")[-1] != "linear":
+            raise NotImplementedError("Only linear output heads are implemented for ProbeHead")
+        elif config.architecture.split("+")[-1] == "linear":
+            if config.task == "classification":
+                head_layers.append(nn.Linear(config.n_embd, config.n_classes))
+                head_layers.append(nn.Softmax(dim = -1))
+                self.loss_fn = nn.CrossEntropyLoss()
+            elif config.task == "regression":
+                head_layers.append(nn.Linear(config.n_embd, 1))
+                head_layers.append(nn.Tanh())
+                self.loss_fn = nn.MSELoss()
+
+        assert len(head_layers) > 0, "ProbeHead must have at least one layer"
+
+        self.head = nn.Sequential(*head_layers)
+    
+    def forward(self, x, targets = None, evaluate = False):
+        """
+            Forward Pass for the Probe Head.
+            Args:
+                x (torch.Tensor): Input tensor to the probe head (B, S, D).
+                targets (torch.Tensor, optional): Target tensor for loss computation. If None, inference mode is assumed. Defaults to None.
+                evaluate (bool, optional): If True, returns logits and loss for evaluation. Defaults to False.
+            Returns:
+                Union[Tuple[torch.Tensor, Optional[torch.Tensor]]]:
+                - If in inference mode: Returns logits and None.
+                - If 'evaluate' is True: Returns logits and loss.
+                - Otherwise: Returns logits and loss.
+        """
+        # Probe Logits (B, S, C)
+        logits = self.head(x)
+        loss = self.loss_fn(
+            logits.view(-1, logits.size(-1)), 
+            targets.flatten()
+        ) if targets is not None else None
+
+        return logits, loss
+
+class ProbeWrapper(nn.Module):
+    def __init__(self, base_model: GPT, probe_head_config: ProbeHeadConfig):
+        super().__init__()
+        self.base_model = base_model
+        for p in self.base_model.parameters():
+            p.requires_grad = False
+        
+        self.white_turn_probes = nn.ModuleList(
+            [
+                ProbeHead(probe_head_config, base_model.config)
+                for _ in range(base_model.config.n_layer)
+            ]
+        )
+        self.black_turn_probes = nn.ModuleList(
+            [
+                ProbeHead(probe_head_config, base_model.config)
+                for _ in range(base_model.config.n_layer)   
+            ]
+        )
+
+    def forward(self, x, targets = None, evaluate = False):
+        """
+        Forward Pass for the Probe Wrapper.
+
+        Args:
+            x (torch.Tensor): Input tensor to the model.
+            targets (torch.Tensor, optional): Target tensor for loss computation. If None, inference mode is assumed. Defaults to None.
+            evaluate (bool, optional): If True, returns logits and base loss for evaluation. Defaults to False.
+
+        Returns:
+            Union[List[torch.Tensor], Tuple[List[torch.Tensor], Optional[torch.Tensor]]]:
+            - If in inference mode: A list of probe logits for each layer and None.
+            - If 'evaluate' is True: A list of probe logits for each layer, the total loss and the per-layer loss components.
+            - Otherwise: A list of probe logits for each layer, the total loss and the per-layer loss components.
+        """
+        inference = targets is None
+        probe_outputs = []
+        total_loss = 0
+        loss_components = []
+
+        for layer_idx in range(self.base_model.config.n_layer):
+            # Latent representation at Layer layer_idx (B, S, D)
+            latent = self.base_model.latent_forward(x, start_layer = layer_idx, end_layer = layer_idx + 1)
+            
+            # Probe Logits of White Turns at Layer layer_idx (B, S, C)
+            white_probe_logits, white_probe_loss = self.white_turn_probes[layer_idx](
+                latent[:, ::2, :], 
+                targets = targets,
+                evaluate = evaluate
+            ) # Probe Logits: (B, S/2, C)
+
+            black_probe_logits, black_probe_loss = self.black_turn_probes[layer_idx](
+                latent[:, 1::2, :], 
+                targets = targets,
+                evaluate = evaluate
+            ) # Probe Logits: (B, S/2, C)
+            
+            probe_logits = torch.stack(
+                (white_probe_logits, black_probe_logits),
+                dim = 3
+            ).transpose(-1, -2).flatten(start_dim = 1, end_dim = 2) # Final Probe Logits: (B, S, C)
+
+            probe_outputs.append(probe_logits) 
+
+            # If not inference, accumulate loss
+            if inference:
+                continue
+            
+            total_loss += (white_probe_loss + black_probe_loss)
+            loss_components.append(white_probe_loss + black_probe_loss)
+
+        if inference:
+            return probe_outputs, None
+
+        return probe_outputs, total_loss, torch.tensor(loss_components)
+
+    def configure_optimizers(self, weight_decay, learning_rate, betas, device_type):
+        # Create AdamW optimizer and use the fused version if it is available
+        fused_available = 'fused' in inspect.signature(torch.optim.AdamW).parameters
+        use_fused = fused_available and device_type == 'cuda'
+        extra_args = dict(fused=True) if use_fused else dict()
+        optimizer = torch.optim.AdamW(
+            {
+                'params': [p for p in self.parameters()],
+                'weight_decay': weight_decay
+            }, 
+            lr=learning_rate, 
+            betas=betas, 
+            **extra_args
+        )
+        print(f"using fused AdamW: {use_fused}")
+
+        return optimizer
