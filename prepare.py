@@ -37,11 +37,11 @@ def pack(ds, blk_size = 1024, dtype = c_dtype):
 
 def map_outcome(result):
   if result == "1-0":
-    return 1
+    return 2
   if result == "1/2-1/2":
-    return 0
+    return 1
   if result == "0-1":
-    return -1   
+    return 0
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--dataset", type = str, required = True)
@@ -106,7 +106,7 @@ if __name__ == "__main__":
     content_name = "transcript"
 
     if args.include_outcomes:
-        outcomes_dtype = np.int8
+        outcomes_dtype = np.float16
 
     def process(example):
         assert tokenizer is not None
@@ -165,9 +165,9 @@ if __name__ == "__main__":
         arr_len = np.sum(dset["len"], dtype=np.uint64)
         print(f"{split} has {arr_len} tokens")
         
-        filename = os.path.join(args.out_dir, f"{file_path.replace(".zip", "")}_{split}.bin")
+        filename = os.path.join(args.out_dir, f"{file_path.replace('.zip', '')}", f"{split}.bin")
         if args.include_outcome:
-            outcomes_filename = os.path.join(args.out_dir, f"{file_path.replace('.zip', '')}_{split}_outcomes.bin")
+            outcomes_filename = os.path.join(args.out_dir, f"{file_path.replace('.zip', '')}", f"{split}_outcomes.bin")
         
         arr = np.memmap(filename, dtype=dtype, mode="w+", shape=(arr_len,))
         if args.include_outcome:
