@@ -1036,9 +1036,10 @@ class ProbeHead(nn.Module):
         """
         # Probe Logits (B, S, C)
         logits = self.head(x)
+        valid_token_filter = ~torch.isnan(targets) if targets is not None else None
         loss = self.loss_fn(
-            logits.view(-1, logits.size(-1)), 
-            targets.flatten()
+            logits[valid_token_filter].view(-1, logits.size(-1)),
+            targets[valid_token_filter].flatten()
         ) if targets is not None else None
 
         return logits, loss
@@ -1136,3 +1137,12 @@ class ProbeWrapper(nn.Module):
         print(f"using fused AdamW: {use_fused}")
 
         return optimizer
+
+def name_probe_losses(micro_loss_tensor):
+    loss_names = []
+    for layer_idx in range(micro_loss_tensor.size(0)):
+        loss_names.append(f"layer_{layer_idx}_probe_loss")
+    
+    return {
+        loss_names[idx]: micro_loss_tensor[idx].item() for idx in range(micro_loss_tensor.size(0))
+    }
