@@ -191,4 +191,5 @@ if __name__ == "__main__":
                 outcomes[idx : idx + len(arr_batch)] = np.concatenate(batch["outcomes"])
 
             idx += len(arr_batch)
+
         arr.flush()

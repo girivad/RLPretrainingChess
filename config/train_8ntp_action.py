@@ -3,7 +3,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 model_dir = "../../model_vol"
-data_dir = "../../model_vol/data_dir/pretrain"
+data_dir = "../../model_vol/data_dir/pretrain/lichess_6gb"
 
 timestamp = datetime.now(ZoneInfo("America/Los_Angeles"))
 run_name = "8nap_lichess " + str(timestamp)
