@@ -192,6 +192,7 @@ if __name__ == "__main__":
 
             idx += len(arr_batch)
 
+
         arr.flush()
         if args.include_outcomes:
             outcomes.flush()
