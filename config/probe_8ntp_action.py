@@ -56,4 +56,4 @@ beta1 = 0.9
 beta2 = 0.99
 grad_clip = 0.0 # clip gradients at this value, or disable if == 0.0
 
-compile = True
+compile = False

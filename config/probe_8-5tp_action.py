@@ -9,7 +9,7 @@ base_model_ckpt = "8-5ap_lichess 2026-01-08 01:05:49.320485-08:00"
 base_model_dir = os.path.join(model_dir, base_model_ckpt, "ckpt_600000")
 init_from = "resume"
 eval_interval = 10
-eval_iters = 10
+eval_iters = 1
 # I'm not sure what's going on, but when log_interval == 100, the time per iter is inaccurate and much longer than it should be
 # when running on multiple GPUs. TODO: investigate
 log_interval = 2  # don't print too too often

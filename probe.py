@@ -225,21 +225,19 @@ elif init_from == 'resume':
 if block_size < model.config.block_size:
     model.crop_block_size(block_size)
     model_args['block_size'] = block_size # so that the checkpoint will have the right value
-model.to(device)
-
-# initialize a GradScaler. If enabled=False scaler is a no-op
-scaler = torch.amp.GradScaler('cuda', enabled=(dtype == 'float16'))
-
 model = ProbeWrapper(
     base_model = model,
     probe_head_config = ProbeHeadConfig(
         architecture = probe_architecture,
         task = probe_task,
-        target = probe_target,
         n_classes = probe_classes,
-        embd_dim = probe_embd,
+        n_embd = probe_embd,
     )
 )
+model.to(device)
+
+# initialize a GradScaler. If enabled=False scaler is a no-op
+scaler = torch.amp.GradScaler('cuda', enabled=(dtype == 'float16'))
 
 # optimizer
 optimizer = model.configure_optimizers(weight_decay, learning_rate, (beta1, beta2), device_type)
@@ -283,7 +281,7 @@ def evaluate():
             probes_losses[k] = torch.tensor(probes_loss)
 
             if probe_task == "classification":
-                for layer in n_layer:
+                for layer in range(n_layer):
                     out[f"{split}/probe_{layer}_accuracy"] += accuracy(
                         preds[layer].flatten(end_dim = 1).argmax(dim = -1), 
                         Y.astype(torch.int64).flatten()

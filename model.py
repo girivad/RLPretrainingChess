@@ -1034,15 +1034,25 @@ class ProbeHead(nn.Module):
                 - If 'evaluate' is True: Returns logits and loss.
                 - Otherwise: Returns logits and loss.
         """
-        # Probe Logits (B, S, C)
-        logits = self.head(x)
+        # Probe Probabilities (B, S, C)
+        probs = self.head(x)
         valid_token_filter = ~torch.isnan(targets) if targets is not None else None
+
+        filtered_probs = probs[valid_token_filter]
+        filtered_targets = targets[valid_token_filter]
+
+        if self.config.task == "classification":
+            filtered_targets = filtered_targets.long()
+
+        print("Filtered Probs Shape:", filtered_probs.shape)
+        print("Filtered Targets Shape:", filtered_targets.shape)
+
         loss = self.loss_fn(
-            logits[valid_token_filter].view(-1, logits.size(-1)),
-            targets[valid_token_filter].flatten()
+            filtered_probs,
+            filtered_targets
         ) if targets is not None else None
 
-        return logits, loss
+        return probs, loss
 
 class ProbeWrapper(nn.Module):
     def __init__(self, base_model: GPT, probe_head_config: ProbeHeadConfig):
@@ -1086,27 +1096,29 @@ class ProbeWrapper(nn.Module):
 
         for layer_idx in range(self.base_model.config.n_layer):
             # Latent representation at Layer layer_idx (B, S, D)
+            print(f"Input to Layer {layer_idx} has type {x.dtype}")
             latent = self.base_model.latent_forward(x, start_layer = layer_idx, end_layer = layer_idx + 1)
-            
-            # Probe Logits of White Turns at Layer layer_idx (B, S, C)
-            white_probe_logits, white_probe_loss = self.white_turn_probes[layer_idx](
+            x = latent
+
+            # Probe Probabilities of White Turns at Layer layer_idx (B, S, C)
+            white_probe_probs, white_probe_loss = self.white_turn_probes[layer_idx](
                 latent[:, ::2, :], 
                 targets = targets[:, ::2],
                 evaluate = evaluate
-            ) # Probe Logits: (B, S/2, C)
+            ) # Probe Probabilities: (B, S/2, C)
 
-            black_probe_logits, black_probe_loss = self.black_turn_probes[layer_idx](
+            black_probe_probs, black_probe_loss = self.black_turn_probes[layer_idx](
                 latent[:, 1::2, :], 
                 targets = targets[:, 1::2],
                 evaluate = evaluate
-            ) # Probe Logits: (B, S/2, C)
+            ) # Probe Probabilities: (B, S/2, C)
             
-            probe_logits = torch.stack(
-                (white_probe_logits, black_probe_logits),
+            probe_probs = torch.stack(
+                (white_probe_probs, black_probe_probs),
                 dim = 3
             ).transpose(-1, -2).flatten(start_dim = 1, end_dim = 2) # Final Probe Logits: (B, S, C)
 
-            probe_outputs.append(probe_logits) 
+            probe_outputs.append(probe_probs) 
 
             # If not inference, accumulate loss
             if inference:
@@ -1126,10 +1138,12 @@ class ProbeWrapper(nn.Module):
         use_fused = fused_available and device_type == 'cuda'
         extra_args = dict(fused=True) if use_fused else dict()
         optimizer = torch.optim.AdamW(
-            {
+            [
+                {
                 'params': [p for p in self.parameters()],
                 'weight_decay': weight_decay
-            }, 
+                }
+            ], 
             lr=learning_rate, 
             betas=betas, 
             **extra_args
