@@ -1044,9 +1044,6 @@ class ProbeHead(nn.Module):
         if self.config.task == "classification":
             filtered_targets = filtered_targets.long()
 
-        print("Filtered Probs Shape:", filtered_probs.shape)
-        print("Filtered Targets Shape:", filtered_targets.shape)
-
         loss = self.loss_fn(
             filtered_probs,
             filtered_targets
@@ -1096,7 +1093,6 @@ class ProbeWrapper(nn.Module):
 
         for layer_idx in range(self.base_model.config.n_layer):
             # Latent representation at Layer layer_idx (B, S, D)
-            print(f"Input to Layer {layer_idx} has type {x.dtype}")
             latent = self.base_model.latent_forward(x, start_layer = layer_idx, end_layer = layer_idx + 1)
             x = latent
 

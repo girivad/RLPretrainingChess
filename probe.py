@@ -18,8 +18,7 @@ $ torchrun --nproc_per_node=8 --nnodes=2 --node_rank=1 --master_addr=123.456.123
 
 import os
 import time
-import math
-import pickle
+from collections import defaultdict
 from contextlib import nullcontext
 
 import numpy as np
@@ -266,7 +265,7 @@ def accuracy(outputs, targets):
 # helps estimate an arbitrarily accurate loss over either split using many batches
 @torch.no_grad()
 def evaluate():
-    out = {}
+    out = defaultdict(lambda: 0)
     model.eval()
     for split in ['train', 'val']:
         losses = torch.zeros(eval_iters)
@@ -278,13 +277,13 @@ def evaluate():
                 # preds: (B, T, C), loss: scalar, probes_loss: (n_layer,)
                 preds, loss, probes_loss = model(X, targets = Y, evaluate = True)
             losses[k] = loss.item()
-            probes_losses[k] = torch.tensor(probes_loss)
+            probes_losses[k] = torch.concatenate(probes_loss)
 
             if probe_task == "classification":
                 for layer in range(n_layer):
                     out[f"{split}/probe_{layer}_accuracy"] += accuracy(
                         preds[layer].flatten(end_dim = 1).argmax(dim = -1), 
-                        Y.astype(torch.int64).flatten()
+                        Y.to(torch.int64).flatten()
                     ) / eval_iters
 
         out[f"{split}/loss"] = losses.mean()
@@ -304,7 +303,6 @@ X, Y = get_batch('train') # fetch the very first batch
 t0 = time.time()
 local_iter_num = 0 # number of iterations in the lifetime of this process
 raw_model = model.module if ddp else model # unwrap DDP container if needed
-running_mfu = -1.0
 
 while True:
     
@@ -323,7 +321,6 @@ while True:
             logs = dict(
                 iter = iter_num,
                 lr = lr,
-                mfu = running_mfu*100, # convert to percentage,
                 **metrics
             )
             wandb.log(logs)
@@ -388,16 +385,12 @@ while True:
         # scale up to undo the division above, approximating the true total loss (exact would have been a sum)
         assert not torch.any(torch.isnan(loss))
         lossf = loss.item() * gradient_accumulation_steps
-        if local_iter_num >= 5: # let the training loop settle a bit
-            mfu = raw_model.estimate_mfu(batch_size * gradient_accumulation_steps, dt)
-            running_mfu = mfu if running_mfu == -1.0 else 0.9*running_mfu + 0.1*mfu
-        print(f"iter {iter_num}: loss {lossf:.4f}, time {dt*1000:.2f}ms, mfu {running_mfu*100:.2f}%")
+        print(f"iter {iter_num}: loss {lossf:.4f}, time {dt*1000:.2f}ms%")
         if wandb_log:
             wandb.log(dict(**{
                 "iter": iter_num,
                 "train/loss": lossf,
                 "lr": lr,
-                "mfu": running_mfu*100, # convert to percentage
             }, **micro_loss_dict))
     iter_num += 1
     local_iter_num += 1
