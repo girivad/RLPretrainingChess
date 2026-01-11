@@ -1091,13 +1091,13 @@ class ProbeWrapper(nn.Module):
             # Probe Logits of White Turns at Layer layer_idx (B, S, C)
             white_probe_logits, white_probe_loss = self.white_turn_probes[layer_idx](
                 latent[:, ::2, :], 
-                targets = targets,
+                targets = targets[:, ::2],
                 evaluate = evaluate
             ) # Probe Logits: (B, S/2, C)
 
             black_probe_logits, black_probe_loss = self.black_turn_probes[layer_idx](
                 latent[:, 1::2, :], 
-                targets = targets,
+                targets = targets[:, 1::2],
                 evaluate = evaluate
             ) # Probe Logits: (B, S/2, C)
             
@@ -1112,8 +1112,8 @@ class ProbeWrapper(nn.Module):
             if inference:
                 continue
             
-            total_loss += (white_probe_loss + black_probe_loss)
-            loss_components.append(white_probe_loss + black_probe_loss)
+            total_loss += white_probe_loss + black_probe_loss
+            loss_components.append(white_probe_loss.item() + black_probe_loss.item())
 
         if inference:
             return probe_outputs, None
@@ -1137,6 +1137,11 @@ class ProbeWrapper(nn.Module):
         print(f"using fused AdamW: {use_fused}")
 
         return optimizer
+    
+    def reset_grad(self):
+        for p in self.parameters():
+            if p.grad is not None and p.requires_grad:
+                p.grad.zero_()
 
 def name_probe_losses(micro_loss_tensor):
     loss_names = []

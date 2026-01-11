@@ -337,8 +337,8 @@ while True:
             )
             wandb.log(logs)
         
-        if metrics['val/loss'] < best_val_loss or (always_save_checkpoint and iter_num % ckpt_interval == 0):
-            best_val_loss = metrics['val/loss']
+        # if metrics['val/loss'] < best_val_loss or (always_save_checkpoint and iter_num % ckpt_interval == 0):
+        #     best_val_loss = metrics['val/loss']
             # if iter_num > 0:
             #     checkpoint = {
             #         'model': raw_model.state_dict(),
