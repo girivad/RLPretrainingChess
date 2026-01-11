@@ -32,14 +32,11 @@ from model import models, model_configs, ProbeWrapper, ProbeHeadConfig, name_pro
 # -----------------------------------------------------------------------------
 # default config values designed to train a gpt2 (124M) on OpenWebText
 # I/O
-out_dir = 'out'
+base_model_dir = 'out'
 eval_interval = 2000
-ckpt_interval = 50000
 log_interval = 1
 eval_iters = 200
-hifi_eval_interval = 400
 eval_only = False # if True, script exits right after the first eval
-always_save_checkpoint = True # if True, always save a checkpoint after each eval
 init_from = 'scratch' # 'scratch' or 'resume' or 'gpt2*'
 # wandb logging
 wandb_log = False # disabled by default
@@ -126,7 +123,7 @@ else:
     ddp_world_size = 1
 
 if master_process:
-    os.makedirs(out_dir, exist_ok=True)
+    os.makedirs(base_model_dir, exist_ok=True)
 torch.manual_seed(1337 + seed_offset)
 torch.backends.cuda.matmul.allow_tf32 = True # allow tf32 on matmul
 torch.backends.cudnn.allow_tf32 = True # allow tf32 on cudnn
@@ -176,7 +173,6 @@ def get_batch(split):
         x, y = x.to(device), y.to(device)
     return x, y
 
-# init these up here, can override if init_from='resume' (i.e. from a checkpoint)
 iter_num = 0
 best_val_loss = 1e9
 
@@ -198,13 +194,13 @@ config_class = model_configs[architecture]
 model_class = models[architecture]
 if init_from == 'scratch':
     # init a new model from scratch
-    print("Initializing a new model from scratch:", model_args)
+    print("Initializing a random base model:", model_args)
     gptconf = config_class(**model_args)
     model = model_class(gptconf)
 elif init_from == 'resume':
-    print(f"Resuming training from {out_dir}")
+    print(f"Loading base model from {base_model_dir}")
     # resume training from a checkpoint.
-    ckpt_path = os.path.join(out_dir, 'ckpt.pt')
+    ckpt_path = os.path.join(base_model_dir, 'ckpt.pt')
     checkpoint = torch.load(ckpt_path, map_location=device)
     checkpoint_model_args = checkpoint['model_args']
     # force these config attributes to be equal otherwise we can't even resume training
@@ -224,7 +220,6 @@ elif init_from == 'resume':
         if k.startswith(unwanted_prefix):
             state_dict[k[len(unwanted_prefix):]] = state_dict.pop(k)
     model.load_state_dict(state_dict)
-    iter_num = checkpoint['iter_num']
 
 # crop down the model block size if desired, using model surgery
 if block_size < model.config.block_size:
@@ -248,8 +243,6 @@ model = ProbeWrapper(
 
 # optimizer
 optimizer = model.configure_optimizers(weight_decay, learning_rate, (beta1, beta2), device_type)
-if init_from == 'resume':
-    optimizer.load_state_dict(checkpoint['optimizer'])
 checkpoint = None # free up memory
 
 # compile the model
@@ -348,7 +341,7 @@ while True:
             #         'best_val_loss': best_val_loss,
             #         'config': config,
             #     }
-            #     ckpt_dir = os.path.join(out_dir, f"ckpt_{iter_num}")
+            #     ckpt_dir = os.path.join(base_model_dir, f"ckpt_{iter_num}")
             #     if not os.path.isdir(ckpt_dir):
             #         os.mkdir(ckpt_dir)
             #     print(f"saving checkpoint to {ckpt_dir}")

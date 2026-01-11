@@ -22,15 +22,6 @@ def small_base_config():
     )
 
 @pytest.fixture
-def batch():
-    """Small batch of data"""
-    B, T = 2, 8
-    V, C = 1969, 3
-    X = torch.randint(0, V, (B, T))
-    Y = torch.randint(0, C, (B, T))
-    return X, Y
-
-@pytest.fixture
 def create_data(V, C, block_size, num_train=100, num_val=20):
     """Create random training and validation data"""
     train_data = np.random.randint(0, V, size=(num_train, block_size - 1), dtype=get_dtype(V))
@@ -66,7 +57,7 @@ def test_dataloader(data, V, C, batch_size, block_size, start_probe_turn, end_pr
 
 def test_probe_wrapper(small_config, data, C):
     (train_data, train_outcomes), (val_data, val_outcomes) = data
-    start_probe_turn = 20, end_probe_turn = 60
+    start_probe_turn, end_probe_turn = 20, 60
 
     X, Y = get_batch("train")
 
@@ -122,7 +113,7 @@ def test_probe_wrapper(small_config, data, C):
 
 def test_eval(small_config, data, C):
     (train_data, train_outcomes), (val_data, val_outcomes) = data
-    start_probe_turn = 20, end_probe_turn = 60
+    start_probe_turn, end_probe_turn = 20, 60
 
     config = GPTConfig(**small_config)
     model = GPT(config)
@@ -158,29 +149,18 @@ if __name__ == "__main__":
     
     small_config = dict(
         n_layer=2, n_head=2, n_embd=32, hidden_dim=64,
-        block_size=16, vocab_size=29, dropout=0.0, bias=False
+        block_size=16, vocab_size=1969, dropout=0.0, bias=False
     )
-    X = torch.randint(0, 29, (2, 8))
-    Y = torch.randint(0, 29, (2, 8))
-    batch = (X, Y)
     
     print("Running minimal tests...")
     try:
-        test_dataloader(
-            batch, 
-            V=1969, 
-            C=3, 
-            batch_size=2, 
-            block_size=30, 
-            start_probe_turn=4, 
-            end_probe_turn=40
-        )
+        test_dataloader(create_data, V=1969, C=3, batch_size=2, block_size=30, start_probe_turn=4, end_probe_turn=40)
         print("✓ Dataloader Tested")
 
-        test_probe_wrapper(small_config, batch, C=3)
+        test_probe_wrapper(small_config, create_data, C=3)
         print("✓ Probe Wrapper Tested")
 
-        test_eval(small_config, batch, C=3)
+        test_eval(small_config, create_data, C=3)
         print("✓ Evaluation Tested")
         
         print("\n✅ All tests passed!")
