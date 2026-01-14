@@ -52,7 +52,7 @@ parser.add_argument("--block_size", type = int, default = 1024)
 parser.add_argument("--pack", action = "store_true", help = "Whether to pack sequences into blocks", default = "store_true")
 parser.add_argument("--pad_to_block_size", action = "store_true", help = "Whether to pad sequences to block size", default = "store_false")
 parser.add_argument("--include_outcomes", action = "store_true", help = "Whether to create a corresponding outcomes file", default = "store_false")
-parser.set_defaults(pack = True, pad_to_block_size = False, include_outcomes = False)
+parser.set_defaults(pack = False, pad_to_block_size = False, include_outcomes = False)
 args = parser.parse_args()
 
 if __name__ == "__main__":
@@ -161,12 +161,15 @@ if __name__ == "__main__":
                 split_pack
             )
 
+    data_dir = os.path.join(args.out_dir, f"{file_path.replace('.zip', '')}")
+    os.makedirs(data_dir, exist_ok=True)
+
     # concatenate all the ids in each dataset into one large file we can use for training
     for split, dset in tokenized.items():
         arr_len = np.sum(dset["len"], dtype=np.uint64)
         print(f"{split} has {arr_len} tokens")
         
-        filename = os.path.join(args.out_dir, f"{file_path.replace('.zip', '')}", f"{split}.bin")
+        filename = os.path.join(data_dir, f"{split}.bin")
         if args.include_outcomes:
             outcomes_filename = os.path.join(args.out_dir, f"{file_path.replace('.zip', '')}", f"{split}_outcomes.bin")
         
